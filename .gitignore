@@ -1,0 +1,30 @@
+node_modules/
+dist/
+data/
+output/
+.playwright-cli/
+*.log
+# Private MT5 source reports
+ReportHistory-*
+uploads/
+tmp/
+temp/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+accounts*.json
+# Root-level exports and account data are private; keep the app entry point.
+/*.html
+!/index.html
+/*.htm
+/*.xlsx
+/*.xls
+/*.csv
+/*.xml
