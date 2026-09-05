@@ -6,6 +6,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { parseReport } from './parser.mjs';
+import { createPlansRouter } from './plans.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -172,6 +173,7 @@ export async function createApp({ dataDir = join(projectDir, 'data'), rootDir = 
     res.set('Content-Disposition', 'attachment; filename="trading-records.csv"');
     res.send(exportCsv(store.getData().trades));
   });
+  app.use('/api/plans', createPlansRouter(store.plans));
   app.use('/api', (_req, _res, next) => next(publicError(404, '接口不存在。')));
   const distDir = join(projectDir, 'dist');
   app.use(express.static(distDir));

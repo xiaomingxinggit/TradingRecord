@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createPlanStore } from './plans.mjs';
 
 export const emptyNote = () => ({ strategy: '', tags: [], rating: 0, content: '', updatedAt: null });
 
@@ -71,8 +72,10 @@ export function createStore(dataDir) {
     (filename, fingerprint, imported_at, trade_count, added_count, updated_count, duplicate_count, warnings)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const alreadyImported = db.prepare('SELECT 1 FROM imports WHERE filename = ? AND fingerprint = ? LIMIT 1');
+  const plans = createPlanStore(db);
 
   return {
+    plans,
     hasImported(filename, fingerprint) {
       return Boolean(alreadyImported.get(filename, fingerprint));
     },

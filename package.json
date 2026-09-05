@@ -16,6 +16,7 @@
     "@fontsource-variable/dm-sans": "^5.3.0",
     "@fontsource-variable/manrope": "^5.3.0",
     "cheerio": "^1.1.2",
+    "element-plus": "^2.14.5",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "jszip": "^3.10.1",

@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, FileCheck2, FileSpreadsheet, FolderOpen, LayoutDashboard, LoaderCircle, Menu, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Star, Target, TrendingUp, Upload, Wallet, X } from 'lucide-vue-next'
 import EquityChart from './components/EquityChart.vue'
 import TradeTable from './components/TradeTable.vue'
 import { summarize } from './analytics'
 import type { AppData, Note, Trade } from './types'
 
-type Page='overview'|'trades'|'calendar'|'journal'|'imports'
-const navigation=[{id:'overview' as Page,label:'交易概览',icon:LayoutDashboard},{id:'trades' as Page,label:'交易记录',icon:ChartNoAxesColumnIncreasing},{id:'calendar' as Page,label:'盈亏日历',icon:CalendarDays},{id:'journal' as Page,label:'交易复盘',icon:BookOpen}]
+const OpeningPlans = defineAsyncComponent(() => import('./components/OpeningPlans.vue'))
+
+type Page='overview'|'plans'|'trades'|'calendar'|'journal'|'imports'
+const navigation=[{id:'overview' as Page,label:'交易概览',icon:LayoutDashboard},{id:'plans' as Page,label:'开仓计划',icon:SlidersHorizontal},{id:'trades' as Page,label:'交易记录',icon:ChartNoAxesColumnIncreasing},{id:'calendar' as Page,label:'盈亏日历',icon:CalendarDays},{id:'journal' as Page,label:'交易复盘',icon:BookOpen}]
 const page=ref<Page>('overview'),mobileMenu=ref(false),loading=ref(true),busy=ref(false),error=ref(''),toast=ref(''),help=ref(false),importModal=ref(false),dragOver=ref(false)
 const data=ref<AppData>({accounts:[],trades:[],cashFlows:[],imports:[],rootFiles:[]})
 const importWarnings=ref<string[]>([])
@@ -81,6 +83,8 @@ onUnmounted(()=>{window.removeEventListener('keydown',escape);clearTimeout(toast
    <main>
     <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" @click="load">重试</button><button class="icon-button" aria-label="关闭错误提示" @click="error=''"><X :size="16"/></button></div>
     <div v-if="data.warnings?.length || importWarnings.length" class="import-warning" role="status"><strong>导入提示</strong><p v-for="warning in [...new Set([...(data.warnings||[]),...importWarnings])]" :key="warning">{{ warning }}</p></div>
+    <OpeningPlans v-if="page === 'plans'" :accounts="data.accounts" :default-account-id="accountId" />
+    <template v-else>
     <div class="page-heading"><div><div class="eyebrow">{{ page==='overview'?'YOUR TRADING, IN PERSPECTIVE':page==='trades'?'EVERY TRADE TELLS A STORY':page==='calendar'?'ONE DAY AT A TIME':page==='journal'?'REFLECT. REFINE. REPEAT.':'YOUR DATA, YOUR SPACE' }}</div><h1>{{ title }}<span v-if="page==='overview'" class="heading-dot"/></h1><p>{{ page==='overview'?'看清每一笔交易，让成长有迹可循。':page==='trades'?'所有交易细节，井然有序。':page==='calendar'?'把交易表现，放回时间里。':page==='journal'?'记录决策背后的思考，找到自己的交易节奏。':'连接你的 MT5 报告，积累完整的交易档案。' }}</p></div><button class="button primary" @click="importModal=true"><Plus :size="17"/>导入交易</button></div>
     <div v-if="loading" class="loading-state"><LoaderCircle class="spin" :size="28"/><p>正在读取交易记录…</p></div>
     <template v-else>
@@ -120,6 +124,7 @@ onUnmounted(()=>{window.removeEventListener('keydown',escape);clearTimeout(toast
       <section class="panel import-history"><div class="panel-heading"><div><h2>导入历史 <span class="count-chip">{{ data.imports.length }}</span></h2><p>每次导入，都有据可查</p></div><span class="subtle-chip">本地 SQLite 存储</span></div><div class="table-scroll"><table class="history-table"><thead><tr><th>文件名</th><th>导入时间</th><th>报告交易</th><th>新增</th><th>更新</th><th>已存在</th><th>状态</th></tr></thead><tbody><tr v-for="item in data.imports" :key="item.id"><td><FileCheck2 :size="16"/><span>{{ item.filename }}</span></td><td>{{ new Date(item.importedAt).toLocaleString('zh-CN',{hour12:false}) }}</td><td>{{ item.tradeCount }} 笔</td><td class="positive">+{{ item.addedCount }}</td><td>{{ item.updatedCount ?? 0 }}</td><td>{{ item.duplicateCount }}</td><td><span :class="item.warnings?.length?'warning-chip':'success-chip'">{{ item.warnings?.length?'需留意':'已完成' }}</span></td></tr></tbody></table></div><div v-for="item in data.imports.filter(i=>i.warnings?.length)" :key="`warning-${item.id}`" class="import-warning"><strong>{{ item.filename }}</strong><p v-for="(warning,i) in item.warnings" :key="i">{{ warning }}</p></div><div v-if="!data.imports.length" class="empty-state"><Database :size="28"/><p>导入第一份报告，开始记录交易。</p></div></section>
       <div class="data-summary-grid"><section class="panel"><div class="panel-heading"><h2>账户信息</h2><Wallet :size="17" class="muted"/></div><dl class="detail-list"><div><dt>交易账户</dt><dd>{{ account?.id||'—' }}</dd></div><div><dt>经纪商</dt><dd>{{ account?.broker||'—' }}</dd></div><div><dt>服务器</dt><dd>{{ account?.server||'—' }}</dd></div><div><dt>报告时间</dt><dd>{{ account?.reportDate||'—' }}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h2>资金流水</h2><span class="subtle-chip">不计入交易盈亏</span></div><dl class="detail-list"><div><dt>累计入金</dt><dd class="positive">{{ money(deposits) }} {{ currency }}</dd></div><div><dt>累计出金</dt><dd>{{ money(withdrawals) }} {{ currency }}</dd></div><div><dt>流水条数</dt><dd>{{ cashflows.length }} 条</dd></div><div><dt>交易品种</dt><dd>{{ topSymbols.map(s=>s.symbol).join('、')||'—' }}</dd></div></dl></section></div>
      </template>
+    </template>
     </template>
    </main>
    <footer class="app-footer"><span>TradeLog <span class="footer-dot">·</span> 让每一次交易，都有收获。</span><span>LOCAL FIRST <span class="online-dot"/></span></footer>
