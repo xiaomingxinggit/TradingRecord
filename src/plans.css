@@ -1,16 +1,5 @@
 
-:root {
-  --el-color-primary: #8063d2;
-  --el-color-primary-dark-2: #6e51c3;
-  --el-color-primary-light-3: #a68fdf;
-  --el-color-primary-light-5: #c0b1e9;
-  --el-color-primary-light-7: #d9d0f2;
-  --el-color-primary-light-8: #e6dff7;
-  --el-color-primary-light-9: #f2eefb;
-  --el-color-success: #34977d;
-  --el-color-danger: #d16d7d;
-  --el-font-family: 'DM Sans Variable', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-}
+
 .opening-plans { max-width: 1200px; margin: 0 auto; }
 .opening-plans .el-card { --el-card-border-radius: 10px; --el-card-padding: 24px; border-color: var(--border); }
 .opening-plans .el-button>span { gap: 7px; }

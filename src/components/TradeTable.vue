@@ -1,13 +1,59 @@
 <script setup lang="ts">
-import { ArrowDownLeft, ArrowUpRight, ArrowUpDown, FilePenLine } from 'lucide-vue-next'
+import { ElButton, ElEmpty, ElTable, ElTableColumn, ElTag } from 'element-plus'
+import { ArrowUpDown, FilePenLine } from 'lucide-vue-next'
 import type { Trade } from '../types'
-defineProps<{trades:Trade[];currency:string;compact?:boolean}>()
-defineEmits<{select:[trade:Trade];sort:[]}>()
-const value=(n:number)=>`${n>0?'+':''}${n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`
-function duration(t:Trade){if(!t.closeTime)return '持仓中';const m=Math.max(0,Math.round((new Date(t.closeTime.replace(' ','T')).getTime()-new Date(t.openTime.replace(' ','T')).getTime())/60000));return m<60?`${m} 分钟`:m<1440?`${Math.floor(m/60)} 小时 ${m%60} 分`:`${Math.floor(m/1440)} 天 ${Math.floor(m%1440/60)} 小时`}
+
+defineProps<{ trades: Trade[]; currency: string; compact?: boolean }>()
+const emit = defineEmits<{ select: [trade: Trade]; sort: [] }>()
+
+const value = (n: number) => `${n > 0 ? '+' : ''}${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function duration(trade: Trade) {
+  if (!trade.closeTime) return '持仓中'
+  const minutes = Math.max(0, Math.round((new Date(trade.closeTime.replace(' ', 'T')).getTime() - new Date(trade.openTime.replace(' ', 'T')).getTime()) / 60000))
+  if (!Number.isFinite(minutes)) return '—'
+  return minutes < 60 ? `${minutes} 分钟` : minutes < 1440 ? `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分` : `${Math.floor(minutes / 1440)} 天 ${Math.floor(minutes % 1440 / 60)} 小时`
+}
 </script>
+
 <template>
- <div class="table-scroll"><table class="trade-table"><thead><tr><th>交易品种</th><th>方向</th><th>开仓时间</th><th>交易量</th><th v-if="!compact">开仓 / 平仓价</th><th>持仓时长</th><th class="align-right"><button class="table-sort" @click="$emit('sort')">净盈亏 <ArrowUpDown :size="12"/></button></th><th class="align-center">复盘</th></tr></thead>
- <tbody><tr v-for="trade in trades" :key="trade.id" tabindex="0" @click="$emit('select',trade)" @keydown.enter="$emit('select',trade)"><td><div class="symbol-cell"><div class="asset-icon" :class="trade.symbol.startsWith('XAU')?'gold':''">{{ trade.symbol.startsWith('XAU')?'Au':trade.symbol.slice(0,2) }}</div><div><strong>{{ trade.symbol }}</strong><small>#{{ trade.ticket }}</small></div></div></td><td><span class="direction" :class="trade.side"><ArrowUpRight v-if="trade.side==='buy'" :size="13"/><ArrowDownLeft v-else :size="13"/>{{ trade.side==='buy'?'做多':'做空' }}</span></td><td><div class="date-cell">{{ trade.openTime.slice(0,10) }}<small>{{ trade.openTime.slice(11) }}</small></div></td><td class="numeric">{{ trade.volume.toFixed(2) }} <small>手</small></td><td v-if="!compact" class="price-cell numeric">{{ trade.openPrice }}<small>{{ trade.closePrice ?? '—' }}</small></td><td class="muted">{{ duration(trade) }}</td><td class="align-right"><strong class="pnl numeric" :class="trade.netProfit>=0?'positive':'negative'">{{ value(trade.netProfit) }}</strong><small class="currency-label">{{ currency }}</small></td><td class="align-center"><button class="note-icon" :class="{written:trade.note?.content}" :aria-label="`复盘交易 ${trade.ticket}`" @click.stop="$emit('select',trade)"><FilePenLine :size="16"/><span v-if="trade.note?.content" class="note-dot"/></button></td></tr></tbody></table>
- <div v-if="!trades.length" class="empty-state"><FilePenLine :size="28"/><strong>没有符合条件的交易</strong><p>调整筛选条件，或导入一份 MT5 历史报告。</p></div></div>
+  <ElTable :data="trades" row-key="id" class="trade-table" @row-click="emit('select', $event)">
+    <ElTableColumn label="交易品种" min-width="140">
+      <template #default="{ row }">
+        <ElButton link type="primary" :aria-label="`查看 ${row.symbol} 交易 ${row.ticket}`" @click.stop="emit('select', row as Trade)">{{ row.symbol }}</ElButton>
+        <div class="cell-secondary">#{{ row.ticket }}</div>
+      </template>
+    </ElTableColumn>
+    <ElTableColumn label="方向" width="86">
+      <template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : 'danger'" effect="light">{{ row.side === 'buy' ? '做多' : '做空' }}</ElTag></template>
+    </ElTableColumn>
+    <ElTableColumn label="开仓时间" min-width="138">
+      <template #default="{ row }"><span>{{ row.openTime.slice(0, 10) }}</span><div class="cell-secondary">{{ row.openTime.slice(11) }}</div></template>
+    </ElTableColumn>
+    <ElTableColumn label="交易量" min-width="95" align="right">
+      <template #default="{ row }"><span class="numeric">{{ row.volume.toFixed(2) }}</span> <span class="muted">手</span></template>
+    </ElTableColumn>
+    <ElTableColumn v-if="!compact" label="开仓 / 平仓价" min-width="140" align="right">
+      <template #default="{ row }"><span class="numeric">{{ row.openPrice }}</span><div class="cell-secondary numeric">{{ row.closePrice ?? '—' }}</div></template>
+    </ElTableColumn>
+    <ElTableColumn label="持仓时长" min-width="130">
+      <template #default="{ row }"><span class="muted">{{ duration(row as Trade) }}</span></template>
+    </ElTableColumn>
+    <ElTableColumn min-width="142" align="right">
+      <template #header><ElButton link aria-label="切换净盈亏排序" @click="emit('sort')">净盈亏 <ArrowUpDown :size="13" /></ElButton></template>
+      <template #default="{ row }">
+        <template v-if="row.closeTime"><strong class="numeric" :class="row.netProfit >= 0 ? 'positive' : 'negative'">{{ value(row.netProfit) }}</strong><div class="cell-secondary">{{ currency }}</div></template>
+        <template v-else><span class="muted">—</span><div class="cell-secondary">未平仓</div></template>
+      </template>
+    </ElTableColumn>
+    <ElTableColumn label="复盘" width="102" align="center">
+      <template #default="{ row }"><ElButton link :type="row.note?.content?.trim() ? 'success' : 'primary'" :aria-label="`复盘交易 ${row.ticket}`" @click.stop="emit('select', row as Trade)"><FilePenLine :size="15" /><span>{{ row.note?.content?.trim() ? '已复盘' : '记录' }}</span></ElButton></template>
+    </ElTableColumn>
+    <template #empty><ElEmpty description="没有符合条件的交易，请调整筛选或导入 MT5 报告。" :image-size="76" /></template>
+  </ElTable>
 </template>
+
+<style scoped>
+.trade-table :deep(.el-table__row) { cursor: pointer; }
+.trade-table :deep(.el-button > span) { gap: 5px; }
+.cell-secondary { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.6; }
+</style>

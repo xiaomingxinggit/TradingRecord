@@ -1,40 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  ElAlert, ElButton, ElCard, ElConfigProvider, ElDescriptions, ElDescriptionsItem,
+  ElAlert, ElButton, ElCard, ElDescriptions, ElDescriptionsItem,
   ElEmpty, ElForm, ElFormItem, ElImage, ElImageViewer, ElInput, ElInputNumber,
   ElMessage, ElMessageBox, ElOption, ElPagination, ElRadioButton, ElRadioGroup,
   ElSelect, ElSkeleton, ElTable, ElTableColumn, ElTag, ElUpload, genFileId,
 } from 'element-plus'
 import type { FormInstance, FormRules, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import type { Account } from '../types'
-import 'element-plus/es/components/base/style/css';
-import 'element-plus/es/components/alert/style/css';
-import 'element-plus/es/components/button/style/css';
-import 'element-plus/es/components/card/style/css';
-import 'element-plus/es/components/descriptions/style/css';
-import 'element-plus/es/components/descriptions-item/style/css';
-import 'element-plus/es/components/empty/style/css';
-import 'element-plus/es/components/form/style/css';
-import 'element-plus/es/components/form-item/style/css';
-import 'element-plus/es/components/image/style/css';
-import 'element-plus/es/components/image-viewer/style/css';
-import 'element-plus/es/components/input/style/css';
-import 'element-plus/es/components/input-number/style/css';
-import 'element-plus/es/components/message/style/css';
-import 'element-plus/es/components/message-box/style/css';
-import 'element-plus/es/components/option/style/css';
-import 'element-plus/es/components/pagination/style/css';
-import 'element-plus/es/components/radio-group/style/css';
-import 'element-plus/es/components/radio-button/style/css';
-import 'element-plus/es/components/select/style/css';
-import 'element-plus/es/components/skeleton/style/css';
-import 'element-plus/es/components/table/style/css';
-import 'element-plus/es/components/table-column/style/css';
-import 'element-plus/es/components/tag/style/css';
-import 'element-plus/es/components/upload/style/css';
 import '../plans.css'
 
 interface PlanImage { id: string; name: string; mimeType: string; size: number; url: string }
@@ -229,7 +203,7 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
 </script>
 
 <template>
-  <ElConfigProvider :locale="zhCn">
+
     <section class="opening-plans">
       <div class="page-heading">
         <div><div class="eyebrow">BEFORE THE TRADE</div><h1>{{ title }}</h1><p>贴一张行情图，记下这次入场的想法。</p></div>
@@ -309,5 +283,5 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
       </ElCard>
       <ElImageViewer v-if="previewOpen && previewUrls.length" :url-list="previewUrls" :initial-index="previewIndex" :z-index="4000" teleported hide-on-click-modal @close="previewOpen = false"/>
     </section>
-  </ElConfigProvider>
+
 </template>

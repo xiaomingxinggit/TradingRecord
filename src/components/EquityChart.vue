@@ -16,15 +16,24 @@ function pointer(e:PointerEvent){const rect=(e.currentTarget as SVGElement).getB
 </script>
 
 <template>
-  <div class="equity-plot">
+  <div class="equity-scroll"><div class="equity-plot">
     <svg :viewBox="`0 0 ${w} ${h}`" role="img" aria-label="按平仓顺序计算的累计净盈亏曲线" @pointermove="pointer" @pointerleave="hover=null">
       <defs><linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#8c72dc" stop-opacity=".21"/><stop offset="100%" stop-color="#8c72dc" stop-opacity=".015"/></linearGradient></defs>
-      <g v-for="tick in ticks" :key="tick"><line :x1="pad.left" :x2="w-pad.right" :y1="y(tick)" :y2="y(tick)" stroke="#ececf2" stroke-dasharray="3 5"/><text x="0" :y="y(tick)+4" fill="#9293a4" font-size="11">{{ tick.toFixed(0) }}</text></g>
+      <g v-for="tick in ticks" :key="tick"><line :x1="pad.left" :x2="w-pad.right" :y1="y(tick)" :y2="y(tick)" stroke="#ececf2" stroke-dasharray="3 5"/><text x="0" :y="y(tick)+4" fill="#9293a4" font-size="17">{{ tick.toFixed(0) }}</text></g>
       <path :d="area" fill="url(#equityFill)"/><line :x1="pad.left" :x2="w-pad.right" :y1="y(0)" :y2="y(0)" stroke="#d8d5e3" stroke-dasharray="5 5"/>
       <path :d="line" fill="none" stroke="#8b70d8" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
-      <g v-for="label in labels" :key="label.i"><text :x="x(label.i)" :y="h-4" fill="#9293a4" font-size="11" text-anchor="middle">{{ label.time }}</text></g>
+      <g v-for="label in labels" :key="label.i"><text :x="x(label.i)" :y="h-4" fill="#9293a4" font-size="17" text-anchor="middle">{{ label.time }}</text></g>
       <g v-if="selected && hover!==null"><line :x1="x(hover)" :x2="x(hover)" :y1="pad.top" :y2="h-pad.bottom" stroke="#b6a6e1" stroke-dasharray="4 4"/><circle :cx="x(hover)" :cy="y(selected.value)" r="5" fill="#8666d8" stroke="white" stroke-width="3"/></g>
     </svg>
     <div v-if="selected" class="chart-tooltip" :style="{left:`${Math.min(76,Math.max(9,x(hover!)/w*100))}%`}"><small>{{ selected.time }}</small><strong>{{ selected.value.toFixed(2) }} {{ currency }}</strong></div>
-  </div>
+  </div></div>
 </template>
+
+<style scoped>
+.equity-scroll { overflow-x: auto; }
+.equity-plot { position: relative; min-width: 560px; margin: 20px 0 10px; }
+.equity-plot svg { display: block; width: 100%; height: auto; min-height: 220px; cursor: crosshair; }
+.chart-tooltip { position: absolute; top: 0; z-index: 1; padding: 10px 13px; border: 1px solid var(--el-border-color-light); border-radius: var(--el-border-radius-base); background: var(--el-bg-color-overlay); box-shadow: var(--el-box-shadow-light); pointer-events: none; }
+.chart-tooltip strong { display: block; margin-top: 5px; color: var(--el-color-primary); font-size: 14px; }
+.chart-tooltip small { color: var(--el-text-color-secondary); font-size: 12px; white-space: nowrap; }
+</style>

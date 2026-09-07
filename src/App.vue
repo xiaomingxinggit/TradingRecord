@@ -1,141 +1,70 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, BookOpen, CalendarDays, ChartNoAxesColumnIncreasing, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, FileCheck2, FileSpreadsheet, FolderOpen, LayoutDashboard, LoaderCircle, Menu, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Star, Target, TrendingUp, Upload, Wallet, X } from 'lucide-vue-next'
-import EquityChart from './components/EquityChart.vue'
-import TradeTable from './components/TradeTable.vue'
-import { summarize } from './analytics'
-import type { AppData, Note, Trade } from './types'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { ElAlert, ElAside, ElBreadcrumb, ElBreadcrumbItem, ElButton, ElConfigProvider, ElContainer, ElDrawer, ElFooter, ElHeader, ElMain, ElSkeleton, ElSpace, ElTag, ElText } from 'element-plus'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import { ChevronRight, CircleHelp, Menu, Plus } from 'lucide-vue-next'
+import AppNavigation from './components/AppNavigation.vue'
+import WorkspaceFilters from './components/WorkspaceFilters.vue'
+import { useWorkspace, type Page } from './composables/useWorkspace'
 
+const OverviewPage = defineAsyncComponent(() => import('./pages/OverviewPage.vue'))
+const TradesPage = defineAsyncComponent(() => import('./pages/TradesPage.vue'))
+const CalendarPage = defineAsyncComponent(() => import('./pages/CalendarPage.vue'))
+const JournalPage = defineAsyncComponent(() => import('./pages/JournalPage.vue'))
+const ImportsPage = defineAsyncComponent(() => import('./pages/ImportsPage.vue'))
 const OpeningPlans = defineAsyncComponent(() => import('./components/OpeningPlans.vue'))
-
-type Page='overview'|'plans'|'trades'|'calendar'|'journal'|'imports'
-const navigation=[{id:'overview' as Page,label:'交易概览',icon:LayoutDashboard},{id:'plans' as Page,label:'开仓计划',icon:SlidersHorizontal},{id:'trades' as Page,label:'交易记录',icon:ChartNoAxesColumnIncreasing},{id:'calendar' as Page,label:'盈亏日历',icon:CalendarDays},{id:'journal' as Page,label:'交易复盘',icon:BookOpen}]
-const page=ref<Page>('overview'),mobileMenu=ref(false),loading=ref(true),busy=ref(false),error=ref(''),toast=ref(''),help=ref(false),importModal=ref(false),dragOver=ref(false)
-const data=ref<AppData>({accounts:[],trades:[],cashFlows:[],imports:[],rootFiles:[]})
-const importWarnings=ref<string[]>([])
-const accountId=ref(''),period=ref('all'),startDate=ref(''),endDate=ref(''),search=ref(''),symbol=ref('all'),side=ref('all'),result=ref('all'),currentPage=ref(1),sortProfit=ref(false),reviewMode=ref('all')
-const selected=ref<Trade|null>(null),note=ref<Note>({strategy:'',tags:[],rating:0,content:''}),tagText=ref(''),fileInput=ref<HTMLInputElement|null>(null),saving=ref(false)
-let toastTimer:ReturnType<typeof setTimeout>|undefined
-const title=computed(()=>navigation.find(n=>n.id===page.value)?.label || '数据导入')
-const account=computed(()=>data.value.accounts.find(a=>a.id===accountId.value))
-const currency=computed(()=>account.value?.currency || 'USD')
-const accountTrades=computed(()=>data.value.trades.filter(t=>t.accountId===accountId.value))
-const latestDate=computed(()=>accountTrades.value.map(t=>(t.closeTime || t.openTime).slice(0,10)).sort().at(-1) || localDate(new Date()))
-const scopedTrades=computed(()=>accountTrades.value.filter(t=>{
- const date=(t.closeTime || t.openTime).slice(0,10)
- if(period.value==='custom')return (!startDate.value||date>=startDate.value)&&(!endDate.value||date<=endDate.value)
- if(period.value==='all')return true
- const last=new Date(`${latestDate.value}T12:00:00`);last.setDate(last.getDate()-(period.value==='7'?6:29));return date>=localDate(last)&&date<=latestDate.value
-}))
-const stats=computed(()=>summarize(scopedTrades.value))
-const overall=computed(()=>summarize(accountTrades.value))
-const reviewed=computed(()=>accountTrades.value.filter(t=>t.note?.content?.trim()).length)
-const symbols=computed(()=>[...new Set(accountTrades.value.map(t=>t.symbol))].sort())
-const filtered=computed(()=>scopedTrades.value.filter(t=>(symbol.value==='all'||t.symbol===symbol.value)&&(side.value==='all'||t.side===side.value)&&(result.value==='all'||(result.value==='win'?t.netProfit>0:result.value==='loss'?t.netProfit<0:t.netProfit===0))&&(!search.value||`${t.ticket} ${t.symbol} ${t.note?.strategy||''} ${t.note?.content||''} ${t.note?.tags?.join(' ')||''}`.toLowerCase().includes(search.value.toLowerCase()))).sort((a,b)=>sortProfit.value?b.netProfit-a.netProfit:(b.closeTime||b.openTime).localeCompare(a.closeTime||a.openTime)))
-const pageCount=computed(()=>Math.max(1,Math.ceil(filtered.value.length/10)))
-const tableTrades=computed(()=>filtered.value.slice((currentPage.value-1)*10,currentPage.value*10))
-const recent=computed(()=>[...scopedTrades.value].sort((a,b)=>sortProfit.value?b.netProfit-a.netProfit:(b.closeTime||b.openTime).localeCompare(a.closeTime||a.openTime)).slice(0,5))
-const journalTrades=computed(()=>filtered.value.filter(t=>reviewMode.value==='all'||(reviewMode.value==='done'?!!t.note?.content?.trim():!t.note?.content?.trim())))
-const calendarMonth=ref(''),calendarYear=computed(()=>Number(calendarMonth.value.slice(0,4))),calendarMonthNumber=computed(()=>Number(calendarMonth.value.slice(5,7)))
-const calendarDays=computed(()=>{if(!calendarMonth.value)return [];const first=new Date(calendarYear.value,calendarMonthNumber.value-1,1),offset=(first.getDay()+6)%7,count=new Date(calendarYear.value,calendarMonthNumber.value,0).getDate();return Array.from({length:Math.ceil((offset+count)/7)*7},(_,i)=>{const day=i-offset+1;const date=`${calendarMonth.value}-${String(day).padStart(2,'0')}`;return {day,valid:day>0&&day<=count,date,summary:overall.value.days.find(d=>d.date===date)}})})
-const monthStats=computed(()=>summarize(accountTrades.value.filter(t=>t.closeTime?.startsWith(calendarMonth.value))))
-const cashflows=computed(()=>data.value.cashFlows.filter(c=>c.accountId===accountId.value))
-const deposits=computed(()=>cashflows.value.filter(c=>c.amount>0).reduce((s,c)=>s+c.amount,0))
-const withdrawals=computed(()=>-cashflows.value.filter(c=>c.amount<0).reduce((s,c)=>s+c.amount,0))
-const dateLabel=computed(()=>{const dates=scopedTrades.value.map(t=>(t.closeTime||t.openTime).slice(0,10)).sort();return dates.length?`${dates[0]} — ${dates.at(-1)}`:'暂无交易数据'})
-const topSymbols=computed(()=>symbols.value.map(s=>{const t=scopedTrades.value.filter(t=>t.symbol===s&&t.closeTime);return {symbol:s,count:t.length,net:t.reduce((n,t)=>n+t.netProfit,0)}}).filter(s=>s.count).sort((a,b)=>b.count-a.count))
-function localDate(d:Date){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
-function money(n:number,signed=false){return `${signed&&n>0?'+':''}${n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`}
-function notify(message:string){toast.value=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.value='',5500)}
-function go(p:Page){page.value=p;mobileMenu.value=false;window.scrollTo({top:0})}
-async function request(path:string,options?:RequestInit){const r=await fetch(path,options);const body=await r.json().catch(()=>({error:'服务返回了无效响应'}));if(!r.ok)throw new Error(body.warnings?.length?body.warnings.join('；'):body.error||body.message||'请求失败');return body}
-async function load(){try{error.value='';data.value=await request('/api/data');if(!data.value.accounts.some(a=>a.id===accountId.value))accountId.value=data.value.accounts[0]?.id||'';if(!calendarMonth.value)calendarMonth.value=latestDate.value.slice(0,7)}catch(e){error.value=(e as Error).message}finally{loading.value=false}}
-async function importFiles(files?:FileList|File[]){if(busy.value)return;busy.value=true;error.value='';try{let r;if(files){if(!files.length)return;const form=new FormData();for(const f of Array.from(files))form.append('files',f);r=await request('/api/import',{method:'POST',body:form})}else r=await request('/api/import-root',{method:'POST'});importWarnings.value=r.warnings||[];await load();notify(`${r.warnings?.length?'导入已处理，请查看提示':'导入完成'}：新增 ${r.addedCount||0} 笔${r.updatedCount?`，更新 ${r.updatedCount} 笔`:''}，已存在 ${r.duplicateCount||0} 笔`);importModal.value=false;go('imports')}catch(e){error.value=(e as Error).message}finally{busy.value=false;if(fileInput.value)fileInput.value.value=''}}
-function drop(e:DragEvent){dragOver.value=false;if(e.dataTransfer?.files.length)void importFiles(e.dataTransfer.files)}
-function openTrade(t:Trade){selected.value=t;note.value={strategy:t.note?.strategy||'',tags:[...(t.note?.tags||[])],rating:t.note?.rating||0,content:t.note?.content||''};tagText.value=note.value.tags.join('，')}
-async function saveNote(){if(!selected.value||saving.value)return;saving.value=true;try{const payload={...note.value,tags:tagText.value.split(/[,，]/).map(s=>s.trim()).filter(Boolean)};await request(`/api/trades/${encodeURIComponent(selected.value.id)}/note`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});await load();selected.value=null;notify('复盘已保存')}catch(e){error.value=(e as Error).message}finally{saving.value=false}}
-function changeMonth(offset:number){const d=new Date(calendarYear.value,calendarMonthNumber.value-1+offset,1);calendarMonth.value=localDate(d).slice(0,7)}
-function selectDay(date:string){period.value='custom';startDate.value=date;endDate.value=date;search.value='';symbol.value='all';side.value='all';result.value='all';go('trades')}
-function resetFilters(){search.value='';symbol.value='all';side.value='all';result.value='all';period.value='all';startDate.value='';endDate.value='';sortProfit.value=false}
-function escape(e:KeyboardEvent){if(e.key==='Escape'){if(!saving.value)selected.value=null;if(!busy.value)importModal.value=false;help.value=false;mobileMenu.value=false}}
-watch([search,symbol,side,result,period,startDate,endDate,accountId],()=>currentPage.value=1)
-watch(accountId,()=>{calendarMonth.value=latestDate.value.slice(0,7);resetFilters()})
-watch([selected,importModal,help],()=>{document.body.style.overflow=selected.value||importModal.value||help.value?'hidden':''})
-onMounted(()=>{void load();window.addEventListener('keydown',escape)})
-onUnmounted(()=>{window.removeEventListener('keydown',escape);clearTimeout(toastTimer)})
+const TradeDrawer = defineAsyncComponent(() => import('./components/TradeDrawer.vue'))
+const ImportDialog = defineAsyncComponent(() => import('./components/ImportDialog.vue'))
+const HelpDialog = defineAsyncComponent(() => import('./components/HelpDialog.vue'))
+const { page, loading, error, data, accountId, accountTrades, importWarnings, importModal, help, selected, go, load } = useWorkspace()
+const mobileMenu = ref(false)
+const headings: Record<Page, { title: string; description: string }> = {
+  overview: { title: '交易概览', description: '看清每一笔交易，让成长有迹可循。' },
+  plans: { title: '开仓计划', description: '贴一张行情图，记下这次入场的想法。' },
+  trades: { title: '交易记录', description: '所有交易细节，井然有序。' },
+  calendar: { title: '盈亏日历', description: '把交易表现，放回时间里。' },
+  journal: { title: '交易复盘', description: '记录决策背后的思考，找到自己的交易节奏。' },
+  imports: { title: '导入与数据', description: '连接你的 MT5 报告，积累完整的交易档案。' },
+}
+const currentHeading = computed(() => headings[page.value])
+const warnings = computed(() => [...new Set([...(data.value.warnings || []), ...importWarnings.value])])
+function navigate(next: Page) { mobileMenu.value = false; go(next) }
+function showHelp() { mobileMenu.value = false; help.value = true }
+onMounted(() => { void load() })
 </script>
 
 <template>
- <div class="app-shell">
-  <div v-if="mobileMenu" class="mobile-scrim" @click="mobileMenu=false"/>
-  <aside class="sidebar" :class="{open:mobileMenu}">
-   <a class="brand" href="#" @click.prevent="go('overview')"><div class="brand-mark"><ChartNoAxesColumnIncreasing :size="24" stroke-width="2.5"/></div><span>TradeLog<span class="brand-dot">.</span></span></a>
-   <div class="workspace-label">个人交易工作台</div>
-   <div class="nav-label">工作空间 <span>WORKSPACE</span></div>
-   <nav><button v-for="item in navigation" :key="item.id" :class="{active:page===item.id}" @click="go(item.id)"><component :is="item.icon" :size="19"/><span>{{ item.label }}</span><span v-if="item.id==='trades'" class="nav-count">{{ accountTrades.length }}</span><span v-if="item.id==='overview' && page===item.id" class="active-dot"/></button></nav>
-   <div class="nav-divider"/>
-   <div class="nav-label">数据管理</div>
-   <nav><button :class="{active:page==='imports'}" @click="go('imports')"><Database :size="19"/><span>导入与数据</span></button><a href="/api/export" download><ArrowDownToLine :size="19"/><span>导出全部记录</span><ArrowUpRight :size="13" class="end-icon"/></a></nav>
-   <div class="sidebar-bottom"><div class="local-card"><div class="local-icon"><ShieldCheck :size="20"/></div><strong>专注交易，沉淀成长</strong><p>每一笔交易，都是下一次<br>决策的参考。</p><button @click="help=true">了解统计口径 <ArrowRight :size="13"/></button></div><button class="help-link" @click="help=true"><CircleHelp :size="17"/>使用说明</button><div class="profile"><span class="avatar">{{ account?.name?.slice(0,1)||'T' }}</span><div><strong>{{ account?.name||'我的账户' }}</strong><small>本地工作空间</small></div><span class="online-dot"/></div></div>
-  </aside>
-  <div class="main-shell">
-   <header class="topbar"><div class="breadcrumb"><button class="mobile-toggle icon-button" aria-label="打开菜单" @click="mobileMenu=true"><Menu :size="21"/></button><span class="breadcrumb-home">工作空间</span><ChevronRight :size="13"/><strong>{{ title }}</strong></div><div class="topbar-right"><span class="local-status"><span class="online-dot"/>数据保存在本机</span><div class="vertical-rule"/><button class="top-help icon-button" aria-label="使用说明" @click="help=true"><CircleHelp :size="18"/></button><span class="avatar small">{{ account?.name?.slice(0,1)||'T' }}</span></div></header>
-   <main>
-    <div v-if="error" class="error-banner" role="alert"><span>{{ error }}</span><button class="text-button" @click="load">重试</button><button class="icon-button" aria-label="关闭错误提示" @click="error=''"><X :size="16"/></button></div>
-    <div v-if="data.warnings?.length || importWarnings.length" class="import-warning" role="status"><strong>导入提示</strong><p v-for="warning in [...new Set([...(data.warnings||[]),...importWarnings])]" :key="warning">{{ warning }}</p></div>
-    <OpeningPlans v-if="page === 'plans'" :accounts="data.accounts" :default-account-id="accountId" />
-    <template v-else>
-    <div class="page-heading"><div><div class="eyebrow">{{ page==='overview'?'YOUR TRADING, IN PERSPECTIVE':page==='trades'?'EVERY TRADE TELLS A STORY':page==='calendar'?'ONE DAY AT A TIME':page==='journal'?'REFLECT. REFINE. REPEAT.':'YOUR DATA, YOUR SPACE' }}</div><h1>{{ title }}<span v-if="page==='overview'" class="heading-dot"/></h1><p>{{ page==='overview'?'看清每一笔交易，让成长有迹可循。':page==='trades'?'所有交易细节，井然有序。':page==='calendar'?'把交易表现，放回时间里。':page==='journal'?'记录决策背后的思考，找到自己的交易节奏。':'连接你的 MT5 报告，积累完整的交易档案。' }}</p></div><button class="button primary" @click="importModal=true"><Plus :size="17"/>导入交易</button></div>
-    <div v-if="loading" class="loading-state"><LoaderCircle class="spin" :size="28"/><p>正在读取交易记录…</p></div>
-    <template v-else>
-     <div class="scope-bar"><div class="account-picker"><span class="account-badge">MT5</span><select v-model="accountId" aria-label="选择交易账户"><option v-if="!data.accounts.length" value="">尚未导入账户</option><option v-for="a in data.accounts" :value="a.id" :key="a.id">{{ a.name }} · {{ a.id }}</option></select><ChevronDown :size="13"/><span class="currency-chip">{{ currency }}</span></div><div v-if="page!=='imports'&&page!=='calendar'" class="date-filter"><CalendarDays :size="15"/><select v-model="period" aria-label="统计日期范围"><option value="all">全部时间</option><option value="7">最近 7 天（截至最新交易）</option><option value="30">最近 30 天（截至最新交易）</option><option value="custom">自定义日期</option></select><template v-if="period==='custom'"><input v-model="startDate" type="date" aria-label="开始日期" :max="endDate||undefined"/><span>至</span><input v-model="endDate" type="date" aria-label="结束日期" :min="startDate||undefined"/></template><span v-else class="scope-date">{{ dateLabel }}</span></div><span v-else class="muted scope-note">{{ account?.broker || '支持 MT5 历史报告' }}</span></div>
-
-     <template v-if="page==='overview'">
-      <section class="stat-grid">
-       <article class="stat-card net-card"><div class="stat-label">净盈亏 <span class="stat-icon purple"><Wallet :size="17"/></span></div><div class="stat-number" :class="stats.net>=0?'positive':'negative'">{{ money(stats.net,true) }}<span>{{ currency }}</span></div><div class="stat-foot"><span class="mini-badge" :class="stats.net>=0?'up':'down'"><TrendingUp :size="12"/>已实现盈亏</span><span>已扣除交易费用</span></div></article>
-       <article class="stat-card"><div class="stat-label">交易胜率 <span class="stat-icon green"><Target :size="17"/></span></div><div class="stat-number">{{ stats.winRate.toFixed(2) }}<span>%</span></div><div class="stat-foot"><span class="positive">{{ stats.wins.length }} 笔盈利</span><span class="foot-divider"/><span>{{ stats.closed.length }} 笔已平仓</span></div></article>
-       <article class="stat-card"><div class="stat-label">盈利因子 <span class="stat-icon blue"><BarChart3 :size="17"/></span></div><div class="stat-number">{{ stats.profitFactor===Infinity?'∞':stats.profitFactor.toFixed(2) }}<span class="number-unit">Profit factor</span></div><div class="stat-foot"><span>盈利总额 / 亏损总额绝对值</span></div></article>
-       <article class="stat-card"><div class="stat-label">交易笔数 <span class="stat-icon orange"><Activity :size="17"/></span></div><div class="stat-number">{{ stats.closed.length }}<span>笔</span></div><div class="stat-foot"><span>活跃交易日</span><strong>{{ stats.days.length }} 天</strong><span class="small-spark">▂ ▅ ▃ ▆ █</span></div></article>
-      </section>
-      <div class="chart-grid"><section class="panel equity-panel"><div class="panel-heading"><div><h2>累计净盈亏 <span class="subtle-chip">{{ currency }}</span></h2><p>每一次决策，都在这条曲线上</p></div><span class="chart-legend"><i/>净盈亏</span></div><div class="chart-total">{{ money(stats.net,true) }}<span class="muted">{{ currency }}</span><span class="chart-caption">{{ dateLabel }}</span></div><EquityChart v-if="stats.closed.length" :points="stats.curve" :currency="currency"/><div v-else class="empty-state"><TrendingUp :size="30"/><p>导入交易后查看收益曲线</p></div><div class="chart-footer"><span><i class="legend-line"/>按平仓顺序累计 · 不含出入金</span><span>最大回撤 <strong class="negative">{{ money(stats.drawdown) }}</strong> {{ currency }}</span></div></section>
-      <section class="panel distribution"><div class="panel-heading"><div><h2>盈亏分布</h2><p>从结果中理解你的交易</p></div><Target :size="17" class="muted"/></div><div class="donut-wrap"><svg viewBox="0 0 180 180" role="img" :aria-label="`盈利${stats.wins.length}笔，亏损${stats.losses.length}笔`"><circle cx="90" cy="90" r="70" fill="none" stroke="#f0eef6" stroke-width="16"/><circle v-if="stats.closed.length" cx="90" cy="90" r="70" fill="none" stroke="#e897a1" stroke-width="16" :stroke-dasharray="`${stats.losses.length/stats.closed.length*439.82} 439.82`" :stroke-dashoffset="-stats.winRate/100*439.82" transform="rotate(-90 90 90)"/><circle v-if="stats.wins.length" cx="90" cy="90" r="70" fill="none" stroke="#66baa4" stroke-width="16" :stroke-dasharray="`${Math.max(0,stats.winRate/100*439.82-4)} 439.82`" stroke-linecap="round" transform="rotate(-90 90 90)"/></svg><div class="donut-label"><span>胜率</span><strong>{{ stats.winRate.toFixed(1) }}<small>%</small></strong><span>{{ stats.closed.length }} 笔交易</span></div></div><div class="distribution-key"><div><span><i class="dot green-dot"/>盈利交易</span><strong>{{ stats.wins.length }} <small>笔</small></strong><b class="positive">{{ money(stats.grossWin,true) }}</b></div><div><span><i class="dot red-dot"/>亏损交易</span><strong>{{ stats.losses.length }} <small>笔</small></strong><b class="negative">{{ money(-stats.grossLoss) }}</b></div><div v-if="stats.closed.length-stats.wins.length-stats.losses.length"><span><i class="dot gray-dot"/>持平交易</span><strong>{{ stats.closed.length-stats.wins.length-stats.losses.length }} <small>笔</small></strong><b>0.00</b></div></div></section></div>
-      <section class="insight-strip"><div><span class="insight-icon"><TrendingUp :size="18"/></span><span>平均每笔盈亏<strong :class="stats.average>=0?'positive':'negative'">{{ money(stats.average,true) }} <small>{{ currency }}</small></strong></span></div><div><span class="insight-icon"><ArrowUpRight :size="18"/></span><span>最佳单笔<strong class="positive">{{ money(stats.best,true) }} <small>{{ currency }}</small></strong></span></div><div><span class="insight-icon"><Clock3 :size="18"/></span><span>平均持仓<strong>{{ stats.averageHold<60?`${Math.round(stats.averageHold)} 分钟`:`${(stats.averageHold/60).toFixed(1)} 小时` }}</strong></span></div><div><span class="insight-icon"><BookOpen :size="18"/></span><span>账户复盘进度<strong>{{ reviewed }} <small>/ {{ accountTrades.length }} 笔</small></strong></span><button class="round-arrow" aria-label="去交易复盘" @click="go('journal')"><ArrowRight :size="16"/></button></div></section>
-      <section class="panel recent-panel"><div class="panel-heading"><div><h2>最近交易 <span class="count-chip">{{ scopedTrades.length }}</span></h2><p>回看交易细节，记录当时的思考</p></div><button class="text-button" @click="go('trades')">查看全部 <ArrowRight :size="14"/></button></div><TradeTable :trades="recent" :currency="currency" compact @select="openTrade" @sort="sortProfit=!sortProfit"/></section>
-      <div class="overview-bottom"><span><ShieldCheck :size="13"/>数据源自 MT5 真实导出报告</span><span>时间按经纪商报表原值显示</span></div>
-     </template>
-
-     <template v-else-if="page==='trades'">
-      <section class="panel records-panel"><div class="filter-row"><div class="search-input"><Search :size="16"/><input v-model="search" placeholder="搜索品种、订单号、复盘…" aria-label="搜索交易"/></div><select v-model="symbol" aria-label="筛选交易品种"><option value="all">全部品种</option><option v-for="s in symbols" :key="s" :value="s">{{ s }}</option></select><select v-model="side" aria-label="筛选交易方向"><option value="all">全部方向</option><option value="buy">做多</option><option value="sell">做空</option></select><select v-model="result" aria-label="筛选盈亏"><option value="all">全部结果</option><option value="win">盈利</option><option value="loss">亏损</option><option value="even">持平</option></select><button class="icon-button filter-reset" aria-label="重置筛选" title="重置筛选" @click="resetFilters"><RefreshCw :size="16"/></button></div><div class="records-summary"><span>共 <strong>{{ filtered.length }}</strong> 笔交易</span><span>筛选净盈亏 <strong :class="filtered.reduce((s,t)=>s+(t.closeTime?t.netProfit:0),0)>=0?'positive':'negative'">{{ money(filtered.reduce((s,t)=>s+(t.closeTime?t.netProfit:0),0),true) }} {{ currency }}</strong></span><span class="muted">点击交易查看详情与复盘</span></div><TradeTable :trades="tableTrades" :currency="currency" @select="openTrade" @sort="sortProfit=!sortProfit"/><div class="pagination"><span>显示 {{ filtered.length?(currentPage-1)*10+1:0 }}–{{ Math.min(currentPage*10,filtered.length) }} 条，共 {{ filtered.length }} 条</span><div><button class="icon-button" :disabled="currentPage<=1" aria-label="上一页" @click="currentPage--"><ChevronLeft :size="17"/></button><button v-for="n in pageCount" :key="n" class="page-button" :class="{active:n===currentPage}" @click="currentPage=n">{{ n }}</button><button class="icon-button" :disabled="currentPage>=pageCount" aria-label="下一页" @click="currentPage++"><ChevronRight :size="17"/></button></div></div></section>
-     </template>
-
-     <template v-else-if="page==='calendar'">
-      <div class="calendar-summary"><div><span>本月净盈亏</span><strong :class="monthStats.net>=0?'positive':'negative'">{{ money(monthStats.net,true) }} <small>{{ currency }}</small></strong></div><div><span>交易天数</span><strong>{{ monthStats.days.length }} <small>天</small></strong></div><div><span>交易笔数</span><strong>{{ monthStats.closed.length }} <small>笔</small></strong></div><div><span>盈利天数</span><strong>{{ monthStats.days.filter(d=>d.profit>0).length }} <small>天</small></strong></div></div>
-      <section class="panel calendar-panel"><div class="panel-heading"><div class="month-heading"><h2>{{ calendarYear }} 年 {{ calendarMonthNumber }} 月</h2><button class="icon-button" aria-label="上个月" @click="changeMonth(-1)"><ChevronLeft :size="18"/></button><button class="icon-button" aria-label="下个月" @click="changeMonth(1)"><ChevronRight :size="18"/></button><button class="subtle-button" @click="calendarMonth=latestDate.slice(0,7)">最新交易月</button></div><span class="muted calendar-tip">按平仓日汇总 · 点击日期查看交易</span></div><div class="calendar-weekdays"><span v-for="d in ['一','二','三','四','五','六','日']" :key="d">周{{ d }}</span></div><div class="calendar-grid"><button v-for="(d,i) in calendarDays" :key="i" :disabled="!d.valid||!d.summary" :class="['calendar-day',{outside:!d.valid,profit:d.summary&&d.summary.profit>0,loss:d.summary&&d.summary.profit<0}]" @click="selectDay(d.date)"><span v-if="d.valid" class="day-number">{{ d.day }}</span><template v-if="d.summary"><strong>{{ money(d.summary.profit,true) }}</strong><small>{{ d.summary.count }} 笔交易</small><span class="day-winrate">胜率 {{ (d.summary.wins/d.summary.count*100).toFixed(0) }}%</span></template></button></div></section>
-     </template>
-
-     <template v-else-if="page==='journal'">
-      <section class="journal-banner"><div class="journal-banner-icon"><BookOpen :size="26"/></div><div><h2>好的交易，值得记录。失误的交易，更是如此。</h2><p>为每笔交易补充策略、执行评分与复盘笔记。</p></div><div class="journal-progress"><strong>{{ reviewed }}<span> / {{ accountTrades.length }}</span></strong><span>已完成复盘</span></div></section>
-      <div class="journal-toolbar"><div class="segmented"><button v-for="o in [{id:'all',label:'全部交易'},{id:'pending',label:'待复盘'},{id:'done',label:'已复盘'}]" :key="o.id" :class="{active:reviewMode===o.id}" @click="reviewMode=o.id">{{ o.label }}</button></div><div class="search-input"><Search :size="16"/><input v-model="search" placeholder="搜索策略、标签或笔记" aria-label="搜索复盘"/></div></div>
-      <div class="journal-grid"><button v-for="t in journalTrades" :key="t.id" class="journal-card" @click="openTrade(t)"><div class="journal-card-top"><div class="symbol-cell"><div class="asset-icon gold">{{ t.symbol.startsWith('XAU')?'Au':t.symbol.slice(0,2) }}</div><div><strong>{{ t.symbol }}</strong><small>{{ t.openTime.slice(0,10) }} · {{ t.side==='buy'?'做多':'做空' }}</small></div></div><strong class="numeric" :class="t.netProfit>=0?'positive':'negative'">{{ money(t.netProfit,true) }}</strong></div><div class="journal-content"><span v-if="t.note?.strategy" class="strategy-tag">{{ t.note.strategy }}</span><p :class="{placeholder:!t.note?.content}">{{ t.note?.content||'记录入场逻辑、执行情况，以及下次可以改进的地方…' }}</p></div><div class="journal-card-footer"><div v-if="t.note?.rating" class="stars"><Star v-for="n in 5" :key="n" :size="13" :class="{filled:n<=t.note.rating}"/></div><span v-else class="muted">#{{ t.ticket }}</span><span :class="t.note?.content?'positive':'purple-text'"><CheckCheck v-if="t.note?.content" :size="13"/>{{ t.note?.content?'已复盘':'开始复盘' }}<ArrowRight :size="13"/></span></div><div v-if="t.note?.tags?.length" class="tag-row"><span v-for="tag in t.note.tags" :key="tag">#{{ tag }}</span></div></button></div><div v-if="!journalTrades.length" class="empty-state"><BookOpen :size="32"/><strong>这里暂时没有交易</strong><p>试试其他复盘状态或搜索条件。</p></div>
-     </template>
-
-     <template v-else-if="page==='imports'">
-      <div class="import-grid"><section class="panel"><div class="panel-heading"><div><h2>导入 MT5 历史报告</h2><p>支持 HTML、HTM 和 Excel（.xlsx）</p></div><Upload :size="19" class="purple-text"/></div><div class="drop-zone" :class="{dragover:dragOver}" @dragover.prevent="dragOver=true" @dragleave.prevent="dragOver=false" @drop.prevent="drop"><div class="upload-icon"><FileSpreadsheet :size="28"/></div><h3>把你的交易报告拖到这里</h3><p>或从电脑中选择文件，单个文件不超过 20 MB</p><button class="button primary" :disabled="busy" @click="fileInput?.click()"><Upload :size="16"/>{{ busy?'正在解析…':'选择报告文件' }}</button><small><ShieldCheck :size="13"/>仅在本机解析与存储</small></div></section><section class="panel root-panel"><div class="panel-heading"><div><h2>项目根目录</h2><p>直接读取当前目录中的 MT5 报告</p></div><FolderOpen :size="19" class="muted"/></div><div class="root-file" v-for="f in data.rootFiles" :key="f.name"><div class="file-icon"><FileSpreadsheet :size="20"/></div><div><strong>{{ f.name }}</strong><small>{{ (f.size/1024).toFixed(1) }} KB · {{ f.name.split('.').at(-1)?.toUpperCase() }}</small></div><Check :size="15" class="positive"/></div><p v-if="!data.rootFiles.length" class="muted root-empty">将导出的报告放入项目根目录，即可一键导入。</p><button class="button secondary full-width" :disabled="busy" @click="importFiles()"><RefreshCw :size="15" :class="{spin:busy}"/>{{ busy?'正在扫描…':'重新扫描并导入' }}</button><div class="import-note"><CheckCheck :size="16"/><p>自动识别已有交易；重复导入会保留你的复盘笔记。</p></div></section></div>
-      <section class="panel import-history"><div class="panel-heading"><div><h2>导入历史 <span class="count-chip">{{ data.imports.length }}</span></h2><p>每次导入，都有据可查</p></div><span class="subtle-chip">本地 SQLite 存储</span></div><div class="table-scroll"><table class="history-table"><thead><tr><th>文件名</th><th>导入时间</th><th>报告交易</th><th>新增</th><th>更新</th><th>已存在</th><th>状态</th></tr></thead><tbody><tr v-for="item in data.imports" :key="item.id"><td><FileCheck2 :size="16"/><span>{{ item.filename }}</span></td><td>{{ new Date(item.importedAt).toLocaleString('zh-CN',{hour12:false}) }}</td><td>{{ item.tradeCount }} 笔</td><td class="positive">+{{ item.addedCount }}</td><td>{{ item.updatedCount ?? 0 }}</td><td>{{ item.duplicateCount }}</td><td><span :class="item.warnings?.length?'warning-chip':'success-chip'">{{ item.warnings?.length?'需留意':'已完成' }}</span></td></tr></tbody></table></div><div v-for="item in data.imports.filter(i=>i.warnings?.length)" :key="`warning-${item.id}`" class="import-warning"><strong>{{ item.filename }}</strong><p v-for="(warning,i) in item.warnings" :key="i">{{ warning }}</p></div><div v-if="!data.imports.length" class="empty-state"><Database :size="28"/><p>导入第一份报告，开始记录交易。</p></div></section>
-      <div class="data-summary-grid"><section class="panel"><div class="panel-heading"><h2>账户信息</h2><Wallet :size="17" class="muted"/></div><dl class="detail-list"><div><dt>交易账户</dt><dd>{{ account?.id||'—' }}</dd></div><div><dt>经纪商</dt><dd>{{ account?.broker||'—' }}</dd></div><div><dt>服务器</dt><dd>{{ account?.server||'—' }}</dd></div><div><dt>报告时间</dt><dd>{{ account?.reportDate||'—' }}</dd></div></dl></section><section class="panel"><div class="panel-heading"><h2>资金流水</h2><span class="subtle-chip">不计入交易盈亏</span></div><dl class="detail-list"><div><dt>累计入金</dt><dd class="positive">{{ money(deposits) }} {{ currency }}</dd></div><div><dt>累计出金</dt><dd>{{ money(withdrawals) }} {{ currency }}</dd></div><div><dt>流水条数</dt><dd>{{ cashflows.length }} 条</dd></div><div><dt>交易品种</dt><dd>{{ topSymbols.map(s=>s.symbol).join('、')||'—' }}</dd></div></dl></section></div>
-     </template>
-    </template>
-    </template>
-   </main>
-   <footer class="app-footer"><span>TradeLog <span class="footer-dot">·</span> 让每一次交易，都有收获。</span><span>LOCAL FIRST <span class="online-dot"/></span></footer>
-  </div>
-  <input ref="fileInput" type="file" hidden multiple accept=".html,.htm,.xlsx" aria-label="上传MT5报告" @change="importFiles(($event.target as HTMLInputElement).files!)"/>
-  <Transition name="toast"><div v-if="toast" class="toast-message" role="status"><Check :size="17"/>{{ toast }}<button class="icon-button" aria-label="关闭通知" @click="toast=''"><X :size="14"/></button></div></Transition>
-
-  <div v-if="importModal" class="modal-backdrop" @click.self="!busy&&(importModal=false)"><section class="modal import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title"><div class="modal-heading"><div><div class="eyebrow">BRING YOUR TRADES IN</div><h2 id="import-title">导入交易报告</h2></div><button class="icon-button" :disabled="busy" aria-label="关闭导入" @click="importModal=false"><X :size="20"/></button></div><div v-if="error" class="inline-error">{{ error }}</div><div class="drop-zone" :class="{dragover:dragOver}" @dragover.prevent="dragOver=true" @dragleave.prevent="dragOver=false" @drop.prevent="drop"><div class="upload-icon"><Upload :size="28"/></div><h3>拖放 MT5 报告至此</h3><p>HTML / HTM / XLSX · 最大 20 MB</p><button class="button primary" :disabled="busy" @click="fileInput?.click()"><LoaderCircle v-if="busy" :size="16" class="spin"/><Plus v-else :size="16"/>{{ busy?'正在解析报告…':'选择文件' }}</button></div><div class="or-divider"><span/>或使用当前目录<span/></div><button class="button secondary full-width" :disabled="busy" @click="importFiles()"><FolderOpen :size="17"/>扫描根目录报告 <span class="count-chip">{{ data.rootFiles.length }}</span></button><p class="modal-hint"><ShieldCheck :size="14"/>重复交易自动去重，已有复盘笔记会保留。</p></section></div>
-
-  <div v-if="selected" class="drawer-backdrop" @click.self="!saving&&(selected=null)"><section class="trade-drawer" role="dialog" aria-modal="true" aria-labelledby="trade-title"><div class="drawer-header"><div><span class="eyebrow">TRADE DETAILS</span><h2 id="trade-title">交易详情与复盘</h2></div><button class="icon-button" :disabled="saving" aria-label="关闭交易详情" @click="selected=null"><X :size="21"/></button></div><div class="drawer-body"><div class="trade-hero"><div class="symbol-cell"><div class="asset-icon gold">{{ selected.symbol.startsWith('XAU')?'Au':selected.symbol.slice(0,2) }}</div><div><strong>{{ selected.symbol }}</strong><small>#{{ selected.ticket }} · {{ selected.side==='buy'?'做多':'做空' }}</small></div></div><div class="trade-hero-pnl"><strong :class="selected.netProfit>=0?'positive':'negative'">{{ money(selected.netProfit,true) }}</strong><span>净盈亏 · {{ currency }}</span></div></div><dl class="trade-details"><div><dt>开仓时间</dt><dd>{{ selected.openTime }}</dd></div><div><dt>平仓时间</dt><dd>{{ selected.closeTime||'未平仓' }}</dd></div><div><dt>开仓价</dt><dd>{{ selected.openPrice }}</dd></div><div><dt>平仓价</dt><dd>{{ selected.closePrice??'—' }}</dd></div><div><dt>交易量</dt><dd>{{ selected.volume }} 手</dd></div><div><dt>交易盈亏</dt><dd>{{ money(selected.profit) }}</dd></div><div><dt>止损 / 止盈</dt><dd>{{ selected.stopLoss??'—' }} / {{ selected.takeProfit??'—' }}</dd></div><div><dt>手续费 / 库存费 / 费用</dt><dd>{{ money(selected.commission) }} / {{ money(selected.swap) }} / {{ money(selected.fees) }}</dd></div></dl><div v-if="selected.comment" class="broker-comment">报表注释：{{ selected.comment }}</div><div class="note-section-title"><BookOpen :size="18"/><h3>我的复盘</h3><span>好的记录，让经验沉淀</span></div><form id="note-form" @submit.prevent="saveNote"><label class="field-label" for="strategy">交易策略</label><input id="strategy" v-model="note.strategy" class="form-input" maxlength="100" placeholder="例如：趋势回调、突破交易"/><label class="field-label">执行评分 <span>评价执行质量，而非盈亏结果</span></label><div class="rating-control"><button v-for="n in 5" :key="n" type="button" :aria-label="`执行评分 ${n} 星`" :aria-pressed="note.rating===n" @click="note.rating=note.rating===n?0:n"><Star :size="25" :class="{filled:n<=note.rating}"/></button><span>{{ note.rating?`${note.rating} / 5`:'暂未评分' }}</span></div><label class="field-label" for="tags">交易标签</label><input id="tags" v-model="tagText" class="form-input" maxlength="500" placeholder="例如：顺势、提前离场（逗号分隔）"/><label class="field-label" for="content">复盘笔记</label><textarea id="content" v-model="note.content" class="form-input note-textarea" maxlength="10000" placeholder="入场的依据是什么？&#10;是否遵守交易计划？&#10;哪些地方做得好，下次如何改进？"/><div class="note-meta"><span>{{ note.content.length }} / 10000</span><span v-if="selected.note?.updatedAt">上次保存 {{ new Date(selected.note.updatedAt).toLocaleString('zh-CN',{hour12:false}) }}</span></div></form><div v-if="error" class="inline-error">{{ error }}</div><p class="source-caption">来源：{{ selected.sourceFile }}</p></div><div class="drawer-footer"><button class="button secondary" :disabled="saving" @click="selected=null">关闭</button><button form="note-form" type="submit" class="button primary" :disabled="saving"><LoaderCircle v-if="saving" class="spin" :size="16"/><Check v-else :size="16"/>{{ saving?'保存中…':'保存复盘' }}</button></div></section></div>
-
-  <div v-if="help" class="modal-backdrop" @click.self="help=false"><section class="modal help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title"><div class="modal-heading"><div><div class="eyebrow">A LITTLE CLARITY</div><h2 id="help-title">使用说明与统计口径</h2></div><button class="icon-button" aria-label="关闭说明" @click="help=false"><X :size="20"/></button></div><div class="help-items"><div><span>01</span><section><h3>从 MT5 开始</h3><p>在 MT5 的历史中选择所需时间范围，导出包含“持仓”明细的 HTML 或 Excel 历史报告。放入项目根目录或通过“导入交易”上传。</p></section></div><div><span>02</span><section><h3>每笔持仓只记录一次</h3><p>按账户与持仓标识去重。订单、成交与持仓不会重复计数。相同交易自动去重，未平仓记录可补全平仓信息；其他冲突会提示，已有复盘始终保留。</p></section></div><div><span>03</span><section><h3>理解数字</h3><p>仅统计已平仓交易。净盈亏 = 盈利 + 手续费 + 库存费 + 其他费用；胜率 = 净盈利笔数 / 已平仓笔数。盈利因子为净盈利总额除以净亏损总额绝对值。</p></section></div><div><span>04</span><section><h3>时间与回撤</h3><p>日期筛选及日历均按平仓日期。时间保留经纪商报表原值，不推断时区。最大回撤根据所选交易的累计净盈亏计算，不包含入金、出金，也不代表持仓期间的浮动回撤。</p></section></div><div><span>05</span><section><h3>数据留在本机</h3><p>各账户分别统计，避免混合不同币种。使用“导出全部记录”可下载含复盘的 CSV；完整数据库位于项目的 data/trading.sqlite，关闭服务后可复制备份。</p></section></div></div><button class="button primary full-width" @click="help=false">明白了</button></section></div>
- </div>
+  <ElConfigProvider :locale="zhCn">
+    <ElContainer class="app-layout">
+      <ElAside width="232px" class="desktop-sidebar"><AppNavigation :page="page" :trade-count="accountTrades.length" @navigate="navigate" @help="showHelp"/></ElAside>
+      <ElContainer direction="vertical" class="content-layout">
+        <ElHeader height="68px" class="app-header">
+          <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>{{ currentHeading.title }}</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
+          <ElSpace><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
+        </ElHeader>
+        <ElMain class="workspace-main">
+          <ElAlert v-if="error && !importModal" type="error" show-icon :title="error" class="workspace-alert" @close="error = ''"><ElButton type="danger" link @click="load">重新加载数据</ElButton></ElAlert>
+          <ElAlert v-if="warnings.length && page !== 'plans'" title="导入提示" type="warning" show-icon :closable="false" class="workspace-alert"><ul class="warning-list"><li v-for="warning in warnings" :key="warning">{{ warning }}</li></ul></ElAlert>
+          <OpeningPlans v-if="page === 'plans'" :accounts="data.accounts" :default-account-id="accountId"/>
+          <template v-else>
+            <div class="page-heading"><div><ElText tag="h1">{{ currentHeading.title }}</ElText><ElText type="info">{{ currentHeading.description }}</ElText></div><ElButton type="primary" @click="importModal = true"><Plus :size="16"/>导入交易</ElButton></div>
+            <ElSkeleton v-if="loading" :rows="10" animated/>
+            <template v-else>
+              <WorkspaceFilters/>
+              <OverviewPage v-if="page === 'overview'"/>
+              <TradesPage v-else-if="page === 'trades'"/>
+              <CalendarPage v-else-if="page === 'calendar'"/>
+              <JournalPage v-else-if="page === 'journal'"/>
+              <ImportsPage v-else-if="page === 'imports'"/>
+            </template>
+          </template>
+        </ElMain>
+        <ElFooter height="auto" class="app-footer"><ElText type="info" size="small">TradeLog · 让每一次交易，都有收获。</ElText></ElFooter>
+      </ElContainer>
+    </ElContainer>
+    <ElDrawer v-model="mobileMenu" title="工作空间" direction="ltr" size="264px" class="navigation-drawer"><AppNavigation :page="page" :trade-count="accountTrades.length" @navigate="navigate" @help="showHelp"/></ElDrawer>
+    <TradeDrawer v-if="selected"/>
+    <ImportDialog v-if="importModal"/>
+    <HelpDialog v-if="help"/>
+  </ElConfigProvider>
 </template>
