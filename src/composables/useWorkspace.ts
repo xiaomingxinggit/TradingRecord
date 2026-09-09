@@ -2,9 +2,11 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { summarize } from '../analytics'
 import type { AppData, Note, Trade } from '../types'
+import { DEFAULT_PAGE, visiblePage, type Page } from '../config/pages'
 
-export type Page = 'overview' | 'plans' | 'trades' | 'calendar' | 'journal' | 'imports'
-const page = ref<Page>('overview')
+export type { Page } from '../config/pages'
+const activePage = ref<Page>(DEFAULT_PAGE)
+const page = computed(() => visiblePage(activePage.value))
 const loading = ref(true), busy = ref(false), error = ref('')
 const importModal = ref(false), help = ref(false), importWarnings = ref<string[]>([])
 const data = ref<AppData>({ accounts: [], trades: [], cashFlows: [], imports: [], rootFiles: [] })
@@ -56,7 +58,7 @@ const topSymbols = computed(() => symbols.value.map(s => {
 function tradeOrder(a: Trade, b: Trade) { return sortProfit.value ? b.netProfit - a.netProfit : (b.closeTime || b.openTime).localeCompare(a.closeTime || a.openTime) }
 function localDate(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 function money(n: number, signed = false) { return `${signed && n > 0 ? '+' : ''}${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
-function go(next: Page) { page.value = next; window.scrollTo({ top: 0 }) }
+function go(next: Page) { activePage.value = visiblePage(next); window.scrollTo({ top: 0 }) }
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, options)
   const body = await response.json().catch(() => ({ error: '服务返回了无效响应。' }))
