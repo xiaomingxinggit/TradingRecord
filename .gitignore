@@ -28,3 +28,7 @@ accounts*.json
 /*.xls
 /*.csv
 /*.xml
+# Private plan exports
+/开仓计划*.zip
+/开仓计划*.md
+/opening-plans*.zip

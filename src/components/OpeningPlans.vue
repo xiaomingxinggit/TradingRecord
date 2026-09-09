@@ -136,6 +136,7 @@ async function backToList() {
     catch { return }
   }
   releasePreviews(); files.value = []; mode.value = 'list'; error.value = ''; imageError.value = ''
+  window.scrollTo({ top: 0 })
 }
 function imageChanged(file: UploadFile) {
   if (!file.raw) return
@@ -193,6 +194,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
 }
 onMounted(() => { void loadPlans(); window.addEventListener('paste', pasteImages); window.addEventListener('beforeunload', beforeUnload) })
 onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', pasteImages); window.removeEventListener('beforeunload', beforeUnload) })
+defineExpose({ showList: backToList })
 </script>
 
 <template>
@@ -223,7 +225,7 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
           </template>
           <ElEmpty v-else description="还没有开仓计划"><template #image><ClipboardPenLine :size="64" stroke-width="1" class="plan-empty-icon"/></template><ElButton type="primary" @click="createPlan">创建第一份计划</ElButton></ElEmpty>
         </ElCard>
-        <p class="plan-footnote">计划独立保存，不计入真实成交、盈亏或交易日历。</p>
+        <p class="plan-footnote">计划与截图保存在本机，编辑完成后请再次保存。</p>
       </template>
 
       <ElCard v-else-if="editing" shadow="never" class="plan-editor-card">
@@ -270,7 +272,7 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
         <div class="plan-detail-section"><h3>入场理由</h3><p :class="{ 'plan-unfilled': !activePlan.reason }">{{ activePlan.reason || '未填写' }}</p></div>
         <div class="plan-detail-section"><h3>计划价位</h3><div class="plan-three-columns plan-price-values"><div><span>计划入场价</span><strong>{{ activePlan.entryPrice ?? '—' }}</strong></div><div><span>止损价</span><strong>{{ activePlan.stopLoss ?? '—' }}</strong></div><div><span>止盈价</span><strong>{{ activePlan.takeProfit ?? '—' }}</strong></div></div></div>
         <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
-        <p class="plan-footnote">这是一份开仓前记录，不会创建真实成交或执行下单。</p>
+        <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
       </ElCard>
       <ElImageViewer v-if="previewOpen && previewUrls.length" :url-list="previewUrls" :initial-index="previewIndex" :z-index="4000" teleported hide-on-click-modal @close="previewOpen = false"/>
     </section>

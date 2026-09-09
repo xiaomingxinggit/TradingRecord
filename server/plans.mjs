@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
+import { exportPlansArchive } from './export.mjs';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_IMAGES = 4;
@@ -130,9 +131,12 @@ export function createPlanStore(db) {
     CREATE INDEX IF NOT EXISTS plan_images_plan ON plan_images(plan_id);
   `);
   const findPlan = db.prepare('SELECT id, payload, created_at, updated_at FROM plans WHERE id = ?');
+  const allPlans = db.prepare('SELECT id, payload, created_at, updated_at FROM plans ORDER BY created_at DESC, id DESC');
   const findImages = db.prepare(`SELECT id, name, mime_type AS mimeType, size
     FROM plan_images WHERE plan_id = ? ORDER BY position, id`);
   const readImage = db.prepare('SELECT mime_type AS mimeType, content FROM plan_images WHERE plan_id = ? AND id = ?');
+  const exportImages = db.prepare(`SELECT name, mime_type AS mimeType, content
+    FROM plan_images WHERE plan_id = ? ORDER BY position, id`);
   // Keep the nullable legacy column so existing databases need no table rebuild.
   // Every write clears it, including old values whose account no longer exists.
   const upsertPlan = db.prepare(`INSERT INTO plans (id, account_id, payload, created_at, updated_at) VALUES (?, NULL, ?, ?, ?)
@@ -155,7 +159,20 @@ export function createPlanStore(db) {
 
   return {
     list() {
-      return db.prepare('SELECT id, payload, created_at, updated_at FROM plans ORDER BY created_at DESC, id DESC').all().map(hydrate);
+      return allPlans.all().map(hydrate);
+    },
+    exportSnapshot() {
+      // Read plans and original images from the same snapshot, then finish the
+      // read transaction before asynchronously building the archive.
+      db.exec('BEGIN');
+      try {
+        const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id) }));
+        db.exec('COMMIT');
+        return plans;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
     get(id) {
       return hydrate(findPlan.get(id));
@@ -231,6 +248,18 @@ export function createPlansRouter(store) {
   };
 
   router.get('/', (_req, res) => res.json({ plans: store.list() }));
+  router.get('/export', async (_req, res) => {
+    try {
+      const archive = await exportPlansArchive(store.exportSnapshot());
+      res.set('Content-Type', 'application/zip');
+      res.set('Content-Disposition', `attachment; filename="opening-plans.zip"; filename*=UTF-8''${encodeURIComponent('开仓计划.zip')}`);
+      res.send(archive);
+    } catch (error) {
+      if (error.status === 409) return res.status(409).json({ error: error.message });
+      console.error(error);
+      res.status(500).json({ error: '导出失败，未生成完整的 Markdown 与截图压缩包，请稍后重试。' });
+    }
+  });
   router.get('/:id', (req, res) => {
     const plan = store.get(req.params.id);
     if (!plan) throw publicError(404, '未找到这份开仓计划。');
