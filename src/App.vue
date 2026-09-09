@@ -16,7 +16,7 @@ const OpeningPlans = defineAsyncComponent(() => import('./components/OpeningPlan
 const TradeDrawer = defineAsyncComponent(() => import('./components/TradeDrawer.vue'))
 const ImportDialog = defineAsyncComponent(() => import('./components/ImportDialog.vue'))
 const HelpDialog = defineAsyncComponent(() => import('./components/HelpDialog.vue'))
-const { page, loading, error, data, accountId, accountTrades, importWarnings, importModal, help, selected, go, load } = useWorkspace()
+const { page, loading, error, data, accountTrades, importWarnings, importModal, help, selected, go, load } = useWorkspace()
 const mobileMenu = ref(false)
 const headings: Record<Page, { title: string; description: string }> = {
   overview: { title: '交易概览', description: '看清每一笔交易，让成长有迹可循。' },
@@ -43,9 +43,9 @@ onMounted(() => { void load() })
           <ElSpace><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
         </ElHeader>
         <ElMain class="workspace-main">
-          <ElAlert v-if="error && !importModal" type="error" show-icon :title="error" class="workspace-alert" @close="error = ''"><ElButton type="danger" link @click="load">重新加载数据</ElButton></ElAlert>
+          <ElAlert v-if="error && !importModal && page !== 'plans'" type="error" show-icon :title="error" class="workspace-alert" @close="error = ''"><ElButton type="danger" link @click="load">重新加载数据</ElButton></ElAlert>
           <ElAlert v-if="warnings.length && page !== 'plans'" title="导入提示" type="warning" show-icon :closable="false" class="workspace-alert"><ul class="warning-list"><li v-for="warning in warnings" :key="warning">{{ warning }}</li></ul></ElAlert>
-          <OpeningPlans v-if="page === 'plans'" :accounts="data.accounts" :default-account-id="accountId"/>
+          <OpeningPlans v-if="page === 'plans'"/>
           <template v-else>
             <div class="page-heading"><div><ElText tag="h1">{{ currentHeading.title }}</ElText><ElText type="info">{{ currentHeading.description }}</ElText></div><ElButton type="primary" @click="importModal = true"><Plus :size="16"/>导入交易</ElButton></div>
             <ElSkeleton v-if="loading" :rows="10" animated/>

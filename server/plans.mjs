@@ -31,7 +31,6 @@ function validatePayload(body, editing) {
     throw publicError(400, '计划内容必须是 JSON 对象。');
   }
   const plan = {
-    accountId: body.accountId ?? null,
     symbol: readText(body.symbol, '品种', 40),
     side: body.side ?? '',
     timeframe: body.timeframe ?? '',
@@ -43,9 +42,6 @@ function validatePayload(body, editing) {
     takeProfit: readPrice(body.takeProfit, '止盈价'),
     status: body.status ?? 'draft',
   };
-  if (plan.accountId !== null && (typeof plan.accountId !== 'string' || !plan.accountId.trim())) {
-    throw publicError(400, '请选择有效账户，或使用独立记录。');
-  }
   if (!['', 'buy', 'sell'].includes(plan.side)) throw publicError(400, '方向请选择做多或做空。');
   if (!timeframes.has(plan.timeframe)) throw publicError(400, '请选择有效的分析周期。');
   if (!marketStates.has(plan.marketState)) throw publicError(400, '请选择有效的市场状态。');
@@ -116,7 +112,7 @@ export function createPlanStore(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS plans (
       id TEXT PRIMARY KEY,
-      account_id TEXT REFERENCES accounts(id),
+      account_id TEXT,
       payload TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -133,26 +129,33 @@ export function createPlanStore(db) {
     );
     CREATE INDEX IF NOT EXISTS plan_images_plan ON plan_images(plan_id);
   `);
-  const findAccount = db.prepare('SELECT 1 FROM accounts WHERE id = ?');
-  const findPlan = db.prepare('SELECT * FROM plans WHERE id = ?');
+  const findPlan = db.prepare('SELECT id, payload, created_at, updated_at FROM plans WHERE id = ?');
   const findImages = db.prepare(`SELECT id, name, mime_type AS mimeType, size
     FROM plan_images WHERE plan_id = ? ORDER BY position, id`);
   const readImage = db.prepare('SELECT mime_type AS mimeType, content FROM plan_images WHERE plan_id = ? AND id = ?');
-  const upsertPlan = db.prepare(`INSERT INTO plans (id, account_id, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET account_id = excluded.account_id, payload = excluded.payload, updated_at = excluded.updated_at`);
+  // Keep the nullable legacy column so existing databases need no table rebuild.
+  // Every write clears it, including old values whose account no longer exists.
+  const upsertPlan = db.prepare(`INSERT INTO plans (id, account_id, payload, created_at, updated_at) VALUES (?, NULL, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET account_id = NULL, payload = excluded.payload, updated_at = excluded.updated_at`);
   const insertImage = db.prepare(`INSERT INTO plan_images (id, plan_id, name, mime_type, size, position, content)
     VALUES (?, ?, ?, ?, ?, ?, ?)`);
   const removeImage = db.prepare('DELETE FROM plan_images WHERE plan_id = ? AND id = ?');
   const reorderImage = db.prepare('UPDATE plan_images SET position = ? WHERE plan_id = ? AND id = ?');
-  const hydrate = (row) => row ? {
-    ...JSON.parse(row.payload), id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
-    images: findImages.all(row.id).map((image) => ({ ...image,
-      url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })),
-  } : null;
+  const hydrate = (row) => {
+    if (!row) return null;
+    const plan = JSON.parse(row.payload);
+    // Omit old associations from all API responses without rewriting saved plans.
+    delete plan.accountId;
+    return {
+      ...plan, id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
+      images: findImages.all(row.id).map((image) => ({ ...image,
+        url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })),
+    };
+  };
 
   return {
     list() {
-      return db.prepare('SELECT * FROM plans ORDER BY created_at DESC, id DESC').all().map(hydrate);
+      return db.prepare('SELECT id, payload, created_at, updated_at FROM plans ORDER BY created_at DESC, id DESC').all().map(hydrate);
     },
     get(id) {
       return hydrate(findPlan.get(id));
@@ -170,14 +173,11 @@ export function createPlanStore(db) {
       try {
         const previous = id ? findPlan.get(id) : null;
         if (id && !previous) throw publicError(404, '未找到这份开仓计划。');
-        if (plan.accountId !== null && !findAccount.get(plan.accountId)) {
-          throw publicError(400, '所选账户不存在，请选择已有账户或独立记录。');
-        }
         const existingImages = previous ? findImages.all(planId) : [];
         if (keepImageIds.some((imageId) => !existingImages.some((image) => image.id === imageId))) {
           throw publicError(400, '保留的截图不属于当前计划，请重新打开计划后再保存。');
         }
-        upsertPlan.run(planId, plan.accountId, JSON.stringify(plan), previous?.created_at ?? now, now);
+        upsertPlan.run(planId, JSON.stringify(plan), previous?.created_at ?? now, now);
         for (const image of existingImages) {
           if (!keepImageIds.includes(image.id)) removeImage.run(planId, image.id);
         }

@@ -21,13 +21,9 @@
 .plan-symbol { display: flex; align-items: center; gap: 10px; }
 .plan-symbol-icon { height: 35px; width: 35px; flex-shrink: 0; display: grid; place-items: center; color: #9476c4; background: #f0ebf8; border-radius: 8px; }
 .plan-symbol strong { font-size: 13px; font-weight: 600; color: #5f516c; }
-.plan-symbol small { display: block; font-size: 10px; color: #a392b2; margin-top: 3px; }
 .plan-pagination { justify-content: flex-end; padding: 18px 24px; }
 .plan-empty-icon { color: #b9a8d7; }
 .plan-footnote { margin-top: 20px; font-size: 11px; line-height: 1.8; color: #9986a7; }
-.plan-account-row { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; padding-bottom: 22px; border-bottom: 1px solid #f0eaf5; font-size: 12px; color: #887294; }
-.plan-account-row .el-select { width: 245px; max-width: 70%; }
-.plan-optional { color: #b09fbb; font-size: 11px; }
 .plan-three-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
 .plan-upload-area { width: 100%; }
 .plan-upload-area .el-upload-list--picture-card { --el-upload-list-picture-card-size: 138px; }
@@ -63,9 +59,6 @@
 @media (max-width: 760px) {
   .opening-plans .el-card { --el-card-padding: 18px; }
   .plan-three-columns { gap: 12px; }
-  .plan-account-row { flex-wrap: wrap; gap: 9px; }
-  .plan-account-row .el-select { width: 230px; }
-  .plan-optional { display: none; }
   .plan-card-heading { flex-wrap: wrap; gap: 10px; }
   .plan-card-heading>span { font-size: 10px; }
   .plan-form-footer { align-items: flex-start; flex-direction: column; }

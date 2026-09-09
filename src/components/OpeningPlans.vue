@@ -8,7 +8,6 @@ import {
 } from 'element-plus'
 import type { FormInstance, FormRules, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
-import type { Account } from '../types'
 import '../plans.css'
 
 interface PlanImage { id: string; name: string; mimeType: string; size: number; url: string }
@@ -16,7 +15,7 @@ type PlanStatus = 'draft' | 'ready'
 type PlanSide = '' | 'buy' | 'sell'
 type MarketState = 'uptrend' | 'downtrend' | 'range' | 'uncertain'
 interface Plan {
-  id: string; accountId: string | null; symbol: string; side: PlanSide; timeframe: string;
+  id: string; symbol: string; side: PlanSide; timeframe: string;
   marketState: MarketState; keyStructure: string; reason: string;
   entryPrice: number | null; stopLoss: number | null; takeProfit: number | null;
   status: PlanStatus; createdAt: string; updatedAt: string; images: PlanImage[];
@@ -26,7 +25,6 @@ interface PlanForm extends Omit<Plan, 'id' | 'images' | 'createdAt' | 'updatedAt
 }
 interface PlanUpload extends UploadUserFile { existingId?: string }
 
-const props = defineProps<{ accounts: Account[]; defaultAccountId: string }>()
 const plans = ref<Plan[]>([]), loading = ref(true), error = ref(''), imageError = ref('')
 const mode = ref<'list' | 'view' | 'new' | 'edit'>('list'), activePlan = ref<Plan | null>(null)
 const formRef = ref<FormInstance>(), uploadRef = ref<UploadInstance>()
@@ -59,17 +57,12 @@ const rules = computed<FormRules<PlanForm>>(() => ({
 }))
 
 function emptyForm(): PlanForm {
-  return { accountId: props.defaultAccountId || '', symbol: '', side: '', timeframe: '',
+  return { symbol: '', side: '', timeframe: '',
     marketState: 'uncertain', keyStructure: '', reason: '', entryPrice: undefined,
     stopLoss: undefined, takeProfit: undefined, status: 'draft' }
 }
 function sideLabel(value: PlanSide) { return value === 'buy' ? '做多' : value === 'sell' ? '做空' : '未填写' }
 function marketLabel(value: MarketState) { return markets.find(m => m.value === value)?.label || '不确定' }
-function accountLabel(value: string | null) {
-  if (!value) return '独立计划（无账户）'
-  const a = props.accounts.find(a => a.id === value)
-  return a ? `${a.name} · ${a.id}` : value
-}
 function timestamp(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
 function priceProblem(value: Pick<PlanForm, 'side' | 'entryPrice' | 'stopLoss' | 'takeProfit'> | Plan): string {
   const { side, entryPrice: entry, stopLoss: stop, takeProfit: target } = value
@@ -116,7 +109,7 @@ function snapshot() {
 function releasePreviews() { temporaryUrls.forEach(url => URL.revokeObjectURL(url)); temporaryUrls.clear() }
 function prepareForm(plan?: Plan) {
   releasePreviews()
-  form.value = plan ? { accountId: plan.accountId || '', symbol: plan.symbol, side: plan.side,
+  form.value = plan ? { symbol: plan.symbol, side: plan.side,
     timeframe: plan.timeframe, marketState: plan.marketState, keyStructure: plan.keyStructure,
     reason: plan.reason, entryPrice: plan.entryPrice ?? undefined, stopLoss: plan.stopLoss ?? undefined,
     takeProfit: plan.takeProfit ?? undefined, status: plan.status } : emptyForm()
@@ -181,7 +174,7 @@ async function savePlan(status: PlanStatus) {
   if (!await formRef.value?.validate().catch(() => false)) return
   saving.value = true; error.value = ''
   try {
-    const payload = { ...form.value, accountId: form.value.accountId || null,
+    const payload = { ...form.value,
       entryPrice: form.value.entryPrice ?? null, stopLoss: form.value.stopLoss ?? null,
       takeProfit: form.value.takeProfit ?? null, status,
       keepImageIds: files.value.flatMap(f => f.existingId ? [f.existingId] : []) }
@@ -219,7 +212,7 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
           <template v-else-if="error"><ElEmpty description="暂时无法读取计划"><ElButton @click="loadPlans">重新加载</ElButton></ElEmpty></template>
           <template v-else-if="plans.length">
             <ElTable :data="pagePlans" row-key="id" class="plan-table" @row-click="viewPlan">
-              <ElTableColumn label="品种" min-width="170"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><div><strong>{{ row.symbol || '未填写品种' }}</strong><small>{{ accountLabel(row.accountId) }}</small></div></div></template></ElTableColumn>
+              <ElTableColumn label="品种" min-width="170"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><strong>{{ row.symbol || '未填写品种' }}</strong></div></template></ElTableColumn>
               <ElTableColumn label="方向" min-width="90"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
               <ElTableColumn label="分析周期" min-width="100"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
               <ElTableColumn label="创建时间" min-width="175"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
@@ -230,13 +223,12 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
           </template>
           <ElEmpty v-else description="还没有开仓计划"><template #image><ClipboardPenLine :size="64" stroke-width="1" class="plan-empty-icon"/></template><ElButton type="primary" @click="createPlan">创建第一份计划</ElButton></ElEmpty>
         </ElCard>
-        <p class="plan-footnote">计划独立保存，不计入真实成交、盈亏或交易日历。尚未导入 MT5 账户也可以记录。</p>
+        <p class="plan-footnote">计划独立保存，不计入真实成交、盈亏或交易日历。</p>
       </template>
 
       <ElCard v-else-if="editing" shadow="never" class="plan-editor-card">
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>保存草稿可稍后补全</span></div></template>
         <ElForm ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="saving" scroll-to-error @submit.prevent="savePlan(form.status)">
-          <div class="plan-account-row"><span>关联账户</span><ElSelect v-model="form.accountId" aria-label="计划关联账户"><ElOption :value="''" label="独立计划（无账户）"/><ElOption v-for="a in accounts" :key="a.id" :value="a.id" :label="`${a.name} · ${a.id}`"/></ElSelect><span class="plan-optional">可独立记录</span></div>
           <div class="plan-three-columns">
             <ElFormItem label="交易品种" prop="symbol"><ElInput id="plan-symbol" v-model="form.symbol" maxlength="40" placeholder="例如 XAUUSDm" clearable/></ElFormItem>
             <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
@@ -271,8 +263,7 @@ onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', p
           <ElDescriptionsItem label="方向">{{ sideLabel(activePlan.side) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="分析周期">{{ activePlan.timeframe || '未填写' }}</ElDescriptionsItem>
           <ElDescriptionsItem label="市场状态">{{ marketLabel(activePlan.marketState) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="关联账户">{{ accountLabel(activePlan.accountId) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="创建时间" :span="2">{{ timestamp(activePlan.createdAt) }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="创建时间">{{ timestamp(activePlan.createdAt) }}</ElDescriptionsItem>
         </ElDescriptions>
         <div class="plan-detail-section"><h3>行情截图 <span v-if="activePlan.images.length">{{ activePlan.images.length }} 张 · 点击放大</span></h3><div v-if="activePlan.images.length" class="plan-screenshot-grid" :class="{ single: activePlan.images.length === 1 }"><ElImage v-for="(image, index) in activePlan.images" :key="image.id" :src="image.url" :alt="image.name" fit="contain" :preview-src-list="activePlan.images.map(i => i.url)" :initial-index="index" preview-teleported :z-index="4000"><template #error><span class="plan-broken-image">截图无法读取</span></template></ElImage></div><p v-else class="plan-unfilled">未添加截图</p></div>
         <div class="plan-detail-section"><h3>关键结构</h3><p :class="{ 'plan-unfilled': !activePlan.keyStructure }">{{ activePlan.keyStructure || '未填写' }}</p></div>
