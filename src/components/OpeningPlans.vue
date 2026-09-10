@@ -57,7 +57,7 @@ const rules = computed<FormRules<PlanForm>>(() => ({
 }))
 
 function emptyForm(): PlanForm {
-  return { symbol: '', side: '', timeframe: '',
+  return { symbol: 'XAUUSD', side: '', timeframe: '',
     marketState: 'uncertain', keyStructure: '', reason: '', entryPrice: undefined,
     stopLoss: undefined, takeProfit: undefined, status: 'draft' }
 }
@@ -232,7 +232,7 @@ defineExpose({ showList: backToList })
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>保存草稿可稍后补全</span></div></template>
         <ElForm ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="saving" scroll-to-error @submit.prevent="savePlan(form.status)">
           <div class="plan-three-columns">
-            <ElFormItem label="交易品种" prop="symbol"><ElInput id="plan-symbol" v-model="form.symbol" maxlength="40" placeholder="例如 XAUUSDm" clearable/></ElFormItem>
+            <ElFormItem label="交易品种" prop="symbol"><ElInput id="plan-symbol" v-model="form.symbol" maxlength="40" placeholder="例如 XAUUSD" clearable/></ElFormItem>
             <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
             <ElFormItem label="分析周期" prop="timeframe"><ElSelect v-model="form.timeframe" placeholder="选择周期" clearable><ElOption v-for="timeframe in timeframes" :key="timeframe" :label="timeframe" :value="timeframe"/></ElSelect></ElFormItem>
           </div>
