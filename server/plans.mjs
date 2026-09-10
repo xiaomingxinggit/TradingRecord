@@ -22,7 +22,7 @@ function readText(value, label, limit) {
 function readPrice(value, label) {
   if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw publicError(400, `${label}必须是大于 0 的有效数值，未填写时请留空。`);
+    throw publicError(400, `${label}为选填，填写时必须是大于 0 的有效数值。`);
   }
   return value;
 }

@@ -214,12 +214,12 @@ defineExpose({ showList: backToList })
           <template v-else-if="error"><ElEmpty description="暂时无法读取计划"><ElButton @click="loadPlans">重新加载</ElButton></ElEmpty></template>
           <template v-else-if="plans.length">
             <ElTable :data="pagePlans" row-key="id" class="plan-table" @row-click="viewPlan">
-              <ElTableColumn label="品种" min-width="170"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><strong>{{ row.symbol || '未填写品种' }}</strong></div></template></ElTableColumn>
-              <ElTableColumn label="方向" min-width="90"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
-              <ElTableColumn label="分析周期" min-width="100"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
-              <ElTableColumn label="创建时间" min-width="175"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
-              <ElTableColumn label="状态" min-width="100"><template #default="{ row }"><ElTag :type="row.status === 'ready' ? 'primary' : 'info'" round>{{ row.status === 'ready' ? '待执行' : '草稿' }}</ElTag></template></ElTableColumn>
-              <ElTableColumn label="操作" width="80" align="right"><template #default="{ row }"><ElButton link type="primary" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton></template></ElTableColumn>
+              <ElTableColumn label="品种" min-width="190" align="left" header-align="left"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><strong>{{ row.symbol || '未填写品种' }}</strong></div></template></ElTableColumn>
+              <ElTableColumn label="方向" min-width="100" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
+              <ElTableColumn label="分析周期" min-width="110" align="center" header-align="center"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
+              <ElTableColumn label="创建时间" min-width="200" align="center" header-align="center"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
+              <ElTableColumn label="状态" min-width="110" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.status === 'ready' ? 'primary' : 'info'" round>{{ row.status === 'ready' ? '待执行' : '草稿' }}</ElTag></template></ElTableColumn>
+              <ElTableColumn label="操作" width="90" align="right" header-align="right"><template #default="{ row }"><ElButton link type="primary" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton></template></ElTableColumn>
             </ElTable>
             <ElPagination v-if="plans.length > 10" v-model:current-page="pageNumber" :total="plans.length" :page-size="10" layout="total, prev, pager, next" class="plan-pagination"/>
           </template>
@@ -248,11 +248,11 @@ defineExpose({ showList: backToList })
           <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
           <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
           <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
-          <div class="plan-prices-heading"><h3>计划价位</h3><span>可留空，填写单个价格</span></div>
+          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span></div>
           <div class="plan-three-columns">
-            <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="可留空"/></ElFormItem>
-            <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="可留空"/></ElFormItem>
-            <ElFormItem label="止盈价" prop="takeProfit"><ElInputNumber v-model="form.takeProfit" :controls="false" placeholder="可留空"/></ElFormItem>
+            <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
+            <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="选填"/></ElFormItem>
+            <ElFormItem label="止盈价" prop="takeProfit"><ElInputNumber v-model="form.takeProfit" :controls="false" placeholder="选填"/></ElFormItem>
           </div>
           <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
           <div class="plan-form-footer"><span>待执行需填写品种、方向、周期和入场理由</span><div><ElButton :loading="saving && selectedStatus === 'draft'" :disabled="saving" @click="savePlan('draft')"><Save :size="15"/>保存草稿</ElButton><ElButton type="primary" :loading="saving && selectedStatus === 'ready'" :disabled="saving" @click="savePlan('ready')"><Check :size="15"/>标记待执行</ElButton></div></div>

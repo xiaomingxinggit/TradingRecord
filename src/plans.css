@@ -16,11 +16,12 @@
 .plan-list-card .el-card__body { padding: 0; }
 .plan-list-card .el-skeleton { padding: 24px; }
 .plan-table { --el-table-header-bg-color: #fcfbfe; --el-table-header-text-color: #8b7d9b; --el-table-row-hover-bg-color: #faf7fe; }
-.plan-table .el-table__cell { padding: 18px 8px; font-size: 12px; }
+.plan-table .el-table__cell { padding: 18px 0; font-size: 12px; }
+.plan-table .cell { padding-inline: 16px; }
 .plan-table .el-table__row { cursor: pointer; }
 .plan-symbol { display: flex; align-items: center; gap: 10px; }
 .plan-symbol-icon { height: 35px; width: 35px; flex-shrink: 0; display: grid; place-items: center; color: #9476c4; background: #f0ebf8; border-radius: 8px; }
-.plan-symbol strong { font-size: 13px; font-weight: 600; color: #5f516c; }
+.plan-symbol strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; color: #5f516c; }
 .plan-pagination { justify-content: flex-end; padding: 18px 24px; }
 .plan-empty-icon { color: #b9a8d7; }
 .plan-footnote { margin-top: 20px; font-size: 11px; line-height: 1.8; color: #9986a7; }
