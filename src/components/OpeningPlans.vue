@@ -4,7 +4,7 @@ import {
   ElAlert, ElButton, ElCard, ElDescriptions, ElDescriptionsItem, ElDialog,
   ElEmpty, ElForm, ElFormItem, ElImage, ElImageViewer, ElInput, ElInputNumber,
   ElMessage, ElMessageBox, ElOption, ElPagination, ElRadioButton, ElRadioGroup,
-  ElSelect, ElSkeleton, ElSpace, ElTable, ElTableColumn, ElTag, ElUpload, genFileId,
+  ElSelect, ElSkeleton, ElTable, ElTableColumn, ElTag, ElUpload, genFileId,
 } from 'element-plus'
 import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
@@ -275,7 +275,6 @@ defineExpose({ showList: backToList })
         <div v-else class="plan-heading-actions">
           <ElButton :disabled="actionBusy" @click="backToList"><ArrowLeft :size="15"/>返回列表</ElButton>
           <template v-if="mode === 'view' && activePlan">
-            <PlanStatusMenu :status="activePlan.status" :disabled="actionBusy" :loading="changingStatusId === activePlan.id" @change="activePlan && chooseStatus(activePlan, $event)"/>
             <ElButton type="primary" :disabled="actionBusy" @click="editPlan"><Pencil :size="15"/>编辑计划</ElButton>
           </template>
         </div>
@@ -294,12 +293,9 @@ defineExpose({ showList: backToList })
               <ElTableColumn label="方向" min-width="100" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
               <ElTableColumn label="分析周期" min-width="110" align="center" header-align="center"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
               <ElTableColumn prop="createdAt" label="创建时间" min-width="200" align="center" header-align="center" sortable="custom" :sort-orders="['descending', 'ascending']"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
-              <ElTableColumn label="状态" min-width="110" align="center" header-align="center"><template #default="{ row }"><ElTag :type="statusInfo(row.status).tagType" round>{{ statusInfo(row.status).label }}</ElTag></template></ElTableColumn>
-              <ElTableColumn label="操作" width="210" align="center" header-align="center"><template #default="{ row }">
-                <ElSpace :size="12" :wrap="false" class="plan-row-actions" @click.stop>
-                  <ElButton link type="primary" :disabled="actionBusy" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton>
-                  <PlanStatusMenu :status="row.status" :disabled="actionBusy" :loading="changingStatusId === row.id" @change="chooseStatus(row as Plan, $event)"/>
-                </ElSpace>
+              <ElTableColumn label="状态" min-width="120" align="center" header-align="center"><template #default="{ row }"><PlanStatusMenu :status="row.status" :disabled="actionBusy || abandonDialog" :loading="changingStatusId === row.id" @change="chooseStatus(row as Plan, $event)"/></template></ElTableColumn>
+              <ElTableColumn label="操作" width="100" align="center" header-align="center"><template #default="{ row }">
+                <ElButton link type="primary" :disabled="actionBusy" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton>
               </template></ElTableColumn>
             </ElTable>
             <ElPagination v-if="plans.length > 10" v-model:current-page="pageNumber" :total="plans.length" :page-size="10" layout="total, prev, pager, next" class="plan-pagination"/>
@@ -347,7 +343,7 @@ defineExpose({ showList: backToList })
       </ElCard>
 
       <ElCard v-else-if="activePlan" shadow="never" class="plan-detail-card">
-        <template #header><div class="plan-card-heading"><h2>{{ activePlan.symbol || '未填写品种' }}<ElTag :type="statusInfo(activePlan.status).tagType" round>{{ statusInfo(activePlan.status).label }}</ElTag></h2><span>更新于 {{ timestamp(activePlan.updatedAt) }}</span></div></template>
+        <template #header><div class="plan-card-heading"><h2>{{ activePlan.symbol || '未填写品种' }}<PlanStatusMenu :status="activePlan.status" :disabled="actionBusy || abandonDialog" :loading="changingStatusId === activePlan.id" @change="activePlan && chooseStatus(activePlan, $event)"/></h2><span>更新于 {{ timestamp(activePlan.updatedAt) }}</span></div></template>
         <ElDescriptions :column="2" border>
           <ElDescriptionsItem label="方向">{{ sideLabel(activePlan.side) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="分析周期">{{ activePlan.timeframe || '未填写' }}</ElDescriptionsItem>

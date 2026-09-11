@@ -19,7 +19,6 @@
 .plan-table .el-table__cell { padding: 18px 0; font-size: 12px; }
 .plan-table .cell { padding-inline: 16px; }
 .plan-table .el-table__row { cursor: pointer; }
-.plan-row-actions { justify-content: center; white-space: nowrap; }
 .plan-status-description { margin-top: 12px; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.8; }
 .plan-symbol { display: flex; align-items: center; gap: 10px; }
 .plan-symbol-icon { height: 35px; width: 35px; flex-shrink: 0; display: grid; place-items: center; color: #9476c4; background: #f0ebf8; border-radius: 8px; }
