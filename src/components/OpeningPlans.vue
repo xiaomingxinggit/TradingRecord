@@ -6,12 +6,13 @@ import {
   ElMessage, ElMessageBox, ElOption, ElPagination, ElRadioButton, ElRadioGroup,
   ElSelect, ElSkeleton, ElTable, ElTableColumn, ElTag, ElUpload, genFileId,
 } from 'element-plus'
-import type { FormInstance, FormRules, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
+import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import '../plans.css'
 
 interface PlanImage { id: string; name: string; mimeType: string; size: number; url: string }
 type PlanStatus = 'draft' | 'ready'
+type CreatedAtOrder = 'ascending' | 'descending'
 type PlanSide = '' | 'buy' | 'sell'
 type MarketState = 'uptrend' | 'downtrend' | 'range' | 'uncertain'
 interface Plan {
@@ -28,6 +29,7 @@ interface PlanUpload extends UploadUserFile { existingId?: string }
 const plans = ref<Plan[]>([]), loading = ref(true), error = ref(''), imageError = ref('')
 const mode = ref<'list' | 'view' | 'new' | 'edit'>('list'), activePlan = ref<Plan | null>(null)
 const formRef = ref<FormInstance>(), uploadRef = ref<UploadInstance>()
+const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('descending')
 const files = ref<PlanUpload[]>([]), saving = ref(false), pageNumber = ref(1)
 const previewOpen = ref(false), previewIndex = ref(0)
 const selectedStatus = ref<PlanStatus>('draft'), initialSnapshot = ref('')
@@ -41,7 +43,15 @@ const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const maxImageCount = 4, maxImageSize = 5 * 1024 * 1024
 const form = ref<PlanForm>(emptyForm())
 const editing = computed(() => mode.value === 'new' || mode.value === 'edit')
-const pagePlans = computed(() => plans.value.slice((pageNumber.value - 1) * 10, pageNumber.value * 10))
+const sortedPlans = computed(() => {
+  const direction = createdAtOrder.value === 'ascending' ? 1 : -1
+  return [...plans.value].sort((a, b) => {
+    const timeDifference = Date.parse(a.createdAt) - Date.parse(b.createdAt)
+    const idDifference = a.id === b.id ? 0 : a.id < b.id ? -1 : 1
+    return direction * (timeDifference || idDifference)
+  })
+})
+const pagePlans = computed(() => sortedPlans.value.slice((pageNumber.value - 1) * 10, pageNumber.value * 10))
 const previewUrls = computed(() => editing.value ? files.value.flatMap(f => f.url ? [f.url] : []) : activePlan.value?.images.map(i => i.url) || [])
 const title = computed(() => ({ list: '开仓计划', view: '计划详情', new: '新建计划', edit: '编辑计划' })[mode.value])
 const planRatio = computed(() => riskReward(editing.value ? form.value : activePlan.value))
@@ -64,6 +74,14 @@ function emptyForm(): PlanForm {
 function sideLabel(value: PlanSide) { return value === 'buy' ? '做多' : value === 'sell' ? '做空' : '未填写' }
 function marketLabel(value: MarketState) { return markets.find(m => m.value === value)?.label || '不确定' }
 function timestamp(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
+function changeCreatedAtOrder({ prop, order }: { prop: string | null; order: CreatedAtOrder | null }) {
+  if (prop !== 'createdAt') return
+  const nextOrder = order ?? (createdAtOrder.value === 'descending' ? 'ascending' : 'descending')
+  if (nextOrder !== createdAtOrder.value) { createdAtOrder.value = nextOrder; pageNumber.value = 1 }
+  // Clicking the active caret clears Element Plus sorting even with two sort
+  // orders. Reapply the other direction so the arrow always matches the list.
+  if (!order) tableRef.value?.sort('createdAt', nextOrder)
+}
 function priceProblem(value: Pick<PlanForm, 'side' | 'entryPrice' | 'stopLoss' | 'takeProfit'> | Plan): string {
   const { side, entryPrice: entry, stopLoss: stop, takeProfit: target } = value
   const prices = [entry, stop, target].filter(p => p != null)
@@ -183,7 +201,7 @@ async function savePlan(status: PlanStatus) {
     for (const file of files.value) if (file.raw) multipart.append('images', file.raw, file.name)
     const path = mode.value === 'edit' && activePlan.value ? `/api/plans/${encodeURIComponent(activePlan.value.id)}` : '/api/plans'
     const { plan } = await request<{ plan: Plan }>(path, { method: mode.value === 'edit' ? 'PUT' : 'POST', body: multipart })
-    plans.value = [plan, ...plans.value.filter(p => p.id !== plan.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    plans.value = [plan, ...plans.value.filter(p => p.id !== plan.id)]
     activePlan.value = plan; releasePreviews(); files.value = []; mode.value = 'view'
     ElMessage.success(status === 'ready' ? '计划已标记为待执行' : '草稿已保存')
   } catch (e) { error.value = (e as Error).message }
@@ -209,15 +227,15 @@ defineExpose({ showList: backToList })
 
       <template v-if="mode === 'list'">
         <ElCard shadow="never" class="plan-list-card">
-          <template #header><div class="plan-card-heading"><h2>我的计划 <ElTag type="info" size="small" round>{{ plans.length }}</ElTag></h2><span>按计划创建时间排序</span></div></template>
+          <template #header><div class="plan-card-heading"><h2>我的计划 <ElTag type="info" size="small" round>{{ plans.length }}</ElTag></h2><span>{{ createdAtOrder === 'descending' ? '最新优先' : '最早优先' }} · 点击创建时间切换</span></div></template>
           <ElSkeleton v-if="loading" :rows="5" animated/>
           <template v-else-if="error"><ElEmpty description="暂时无法读取计划"><ElButton @click="loadPlans">重新加载</ElButton></ElEmpty></template>
           <template v-else-if="plans.length">
-            <ElTable :data="pagePlans" row-key="id" class="plan-table" @row-click="viewPlan">
+            <ElTable ref="tableRef" :data="pagePlans" row-key="id" class="plan-table" :default-sort="{ prop: 'createdAt', order: createdAtOrder }" @sort-change="changeCreatedAtOrder" @row-click="viewPlan">
               <ElTableColumn label="品种" min-width="190" align="left" header-align="left"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><strong>{{ row.symbol || '未填写品种' }}</strong></div></template></ElTableColumn>
               <ElTableColumn label="方向" min-width="100" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
               <ElTableColumn label="分析周期" min-width="110" align="center" header-align="center"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
-              <ElTableColumn label="创建时间" min-width="200" align="center" header-align="center"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
+              <ElTableColumn prop="createdAt" label="创建时间" min-width="200" align="center" header-align="center" sortable="custom" :sort-orders="['descending', 'ascending']"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
               <ElTableColumn label="状态" min-width="110" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.status === 'ready' ? 'primary' : 'info'" round>{{ row.status === 'ready' ? '待执行' : '草稿' }}</ElTag></template></ElTableColumn>
               <ElTableColumn label="操作" width="90" align="right" header-align="right"><template #default="{ row }"><ElButton link type="primary" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton></template></ElTableColumn>
             </ElTable>
