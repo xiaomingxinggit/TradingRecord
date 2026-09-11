@@ -36,6 +36,8 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     });
   });
   app.use((error, _req, res, _next) => {
+    if (error.type === 'entity.parse.failed') return res.status(400).json({ error: '状态请求的 JSON 格式无效。' });
+    if (error.type === 'entity.too.large') return res.status(413).json({ error: '请求内容过大，请缩短放弃原因后重试。' });
     const status = error.status ?? 500;
     if (status >= 500) console.error(error);
     res.status(status).json({ error: status >= 500 ? '处理失败，请稍后重试。' : error.message });

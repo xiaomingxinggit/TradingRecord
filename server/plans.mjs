@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import { Router } from 'express';
+import { Router, json } from 'express';
 import multer from 'multer';
 import { exportPlansArchive } from './export.mjs';
 
@@ -8,6 +8,7 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_IMAGES = 4;
 const timeframes = new Set(['', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1']);
 const marketStates = new Set(['uptrend', 'downtrend', 'range', 'uncertain']);
+const planStatuses = new Set(['draft', 'ready', 'executed', 'abandoned']);
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const publicError = (status, message) => Object.assign(new Error(message), { status });
 
@@ -27,7 +28,7 @@ function readPrice(value, label) {
   return value;
 }
 
-function validatePayload(body, editing) {
+function validateContent(body, status) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw publicError(400, '计划内容必须是 JSON 对象。');
   }
@@ -41,16 +42,16 @@ function validatePayload(body, editing) {
     entryPrice: readPrice(body.entryPrice, '计划入场价'),
     stopLoss: readPrice(body.stopLoss, '止损价'),
     takeProfit: readPrice(body.takeProfit, '止盈价'),
-    status: body.status ?? 'draft',
+    status,
   };
   if (!['', 'buy', 'sell'].includes(plan.side)) throw publicError(400, '方向请选择做多或做空。');
   if (!timeframes.has(plan.timeframe)) throw publicError(400, '请选择有效的分析周期。');
   if (!marketStates.has(plan.marketState)) throw publicError(400, '请选择有效的市场状态。');
-  if (!['draft', 'ready'].includes(plan.status)) throw publicError(400, '计划状态仅支持草稿或待执行。');
-  if (plan.status === 'ready') {
+  if (!planStatuses.has(plan.status)) throw publicError(400, '计划状态仅支持草稿、待执行、已执行或已放弃。');
+  if (plan.status === 'ready' || plan.status === 'executed') {
     const missing = [['symbol', '品种'], ['side', '方向'], ['timeframe', '分析周期'], ['reason', '入场理由']]
       .filter(([field]) => !plan[field]).map(([, label]) => label);
-    if (missing.length) throw publicError(400, `标记待执行前，请填写${missing.join('、')}。`);
+    if (missing.length) throw publicError(400, `${plan.status === 'ready' ? '待执行' : '已执行'}计划需要${missing.join('、')}，请先编辑补齐。`);
   }
   const { side, entryPrice, stopLoss, takeProfit } = plan;
   if (side) {
@@ -67,6 +68,12 @@ function validatePayload(body, editing) {
       throw publicError(400, `${direction}计划的止损价必须${relation}止盈价。`);
     }
   }
+  return plan;
+}
+
+function validatePayload(body, editing, status) {
+  const plan = validateContent(body, status);
+  if (body.status !== undefined && !planStatuses.has(body.status)) throw publicError(400, '计划状态无效。');
   const keepImageIds = body.keepImageIds ?? (editing ? null : []);
   if (!Array.isArray(keepImageIds) || keepImageIds.length > MAX_IMAGES
     || keepImageIds.some((id) => typeof id !== 'string' || !id || id.length > 64)
@@ -141,6 +148,7 @@ export function createPlanStore(db) {
   // Every write clears it, including old values whose account no longer exists.
   const upsertPlan = db.prepare(`INSERT INTO plans (id, account_id, payload, created_at, updated_at) VALUES (?, NULL, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET account_id = NULL, payload = excluded.payload, updated_at = excluded.updated_at`);
+  const updateStatus = db.prepare('UPDATE plans SET account_id = NULL, payload = ?, updated_at = ? WHERE id = ?');
   const insertImage = db.prepare(`INSERT INTO plan_images (id, plan_id, name, mime_type, size, position, content)
     VALUES (?, ?, ?, ?, ?, ?, ?)`);
   const removeImage = db.prepare('DELETE FROM plan_images WHERE plan_id = ? AND id = ?');
@@ -151,7 +159,8 @@ export function createPlanStore(db) {
     // Omit old associations from all API responses without rewriting saved plans.
     delete plan.accountId;
     return {
-      ...plan, id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
+      ...plan, statusChangedAt: plan.statusChangedAt ?? null, abandonReason: plan.abandonReason ?? '',
+      id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
       images: findImages.all(row.id).map((image) => ({ ...image,
         url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })),
     };
@@ -180,16 +189,57 @@ export function createPlanStore(db) {
     getImage(planId, imageId) {
       return readImage.get(planId, imageId) ?? null;
     },
+    changeStatus(id, body) {
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || Object.keys(body).some((key) => !['status', 'abandonReason'].includes(key))) {
+        throw publicError(400, '请仅提交状态及选填的放弃原因。');
+      }
+      if (!planStatuses.has(body.status)) throw publicError(400, '计划状态仅支持草稿、待执行、已执行或已放弃。');
+      if (body.abandonReason !== undefined && body.status !== 'abandoned') {
+        throw publicError(400, '仅在标记已放弃时填写放弃原因。');
+      }
+      const abandonReason = body.abandonReason === undefined ? undefined : readText(body.abandonReason, '放弃原因', 2000);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const row = findPlan.get(id);
+        if (!row) throw publicError(404, '未找到这份开仓计划。');
+        const previous = JSON.parse(row.payload);
+        if (previous.status === body.status) {
+          const plan = hydrate(row);
+          db.exec('COMMIT');
+          return { plan, changed: false };
+        }
+        validateContent(previous, body.status);
+        const now = new Date().toISOString();
+        const plan = { ...previous, status: body.status, statusChangedAt: now,
+          abandonReason: body.status === 'abandoned' ? abandonReason ?? previous.abandonReason ?? '' : previous.abandonReason ?? '' };
+        delete plan.accountId;
+        updateStatus.run(JSON.stringify(plan), now, id);
+        const saved = hydrate(findPlan.get(id));
+        db.exec('COMMIT');
+        return { plan: saved, changed: true };
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
     save(id, payload, files) {
-      const { plan, keepImageIds } = validatePayload(payload, Boolean(id));
       const newImages = validateImages(files);
-      if (keepImageIds.length + newImages.length > MAX_IMAGES) throw publicError(400, '每个计划最多保存 4 张截图，请先移除多余截图。');
       const planId = id ?? randomUUID();
-      const now = new Date().toISOString();
       db.exec('BEGIN IMMEDIATE');
       try {
         const previous = id ? findPlan.get(id) : null;
         if (id && !previous) throw publicError(404, '未找到这份开仓计划。');
+        const previousPlan = previous ? JSON.parse(previous.payload) : null;
+        // Content saves preserve the latest stored status, even from stale forms.
+        const status = previousPlan ? previousPlan.status : payload?.status ?? 'draft';
+        if (!previous && !['draft', 'ready'].includes(status)) throw publicError(400, '新计划请先保存草稿或标记待执行。');
+        const { plan: content, keepImageIds } = validatePayload(payload, Boolean(id), status);
+        if (keepImageIds.length + newImages.length > MAX_IMAGES) throw publicError(400, '每个计划最多保存 4 张截图，请先移除多余截图。');
+        const plan = { ...previousPlan, ...content, statusChangedAt: previousPlan?.statusChangedAt ?? null,
+          abandonReason: previousPlan?.abandonReason ?? '' };
+        delete plan.accountId;
+        const now = new Date().toISOString();
         const existingImages = previous ? findImages.all(planId) : [];
         if (keepImageIds.some((imageId) => !existingImages.some((image) => image.id === imageId))) {
           throw publicError(400, '保留的截图不属于当前计划，请重新打开计划后再保存。');
@@ -275,5 +325,6 @@ export function createPlansRouter(store) {
   });
   router.post('/', readUpload, save);
   router.put('/:id', readUpload, save);
+  router.patch('/:id/status', json({ limit: '16kb' }), (req, res) => res.json(store.changeStatus(req.params.id, req.body)));
   return router;
 }

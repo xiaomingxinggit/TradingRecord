@@ -8,7 +8,7 @@
 .opening-plans .el-select,.opening-plans .el-input-number { width: 100%; }
 .opening-plans .el-input-number .el-input__inner { text-align: left; }
 .plan-alert { margin-bottom: 22px; }
-.plan-heading-actions { display: flex; gap: 10px; }
+.plan-heading-actions { display: flex; align-items: center; gap: 10px; }
 .plan-heading-actions .el-button+.el-button { margin-left: 0; }
 .plan-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .plan-card-heading h2 { display: flex; align-items: center; gap: 10px; font-size: 15px; }
@@ -19,6 +19,8 @@
 .plan-table .el-table__cell { padding: 18px 0; font-size: 12px; }
 .plan-table .cell { padding-inline: 16px; }
 .plan-table .el-table__row { cursor: pointer; }
+.plan-row-actions { justify-content: center; white-space: nowrap; }
+.plan-status-description { margin-top: 12px; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.8; }
 .plan-symbol { display: flex; align-items: center; gap: 10px; }
 .plan-symbol-icon { height: 35px; width: 35px; flex-shrink: 0; display: grid; place-items: center; color: #9476c4; background: #f0ebf8; border-radius: 8px; }
 .plan-symbol strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; color: #5f516c; }

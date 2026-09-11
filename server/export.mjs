@@ -1,12 +1,13 @@
 import JSZip from 'jszip';
 
-const statusLabels = { draft: '草稿', ready: '待执行' };
+const statusLabels = { draft: '草稿', ready: '待执行', executed: '已执行', abandoned: '已放弃' };
 const sideLabels = { buy: '做多', sell: '做空' };
 const marketLabels = { uptrend: '上涨趋势', downtrend: '下跌趋势', range: '震荡', uncertain: '不确定' };
 const imageExtensions = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp']]);
 const fields = [
   ['id', '唯一标识'], ['createdAt', '创建时间（UTC）'], ['updatedAt', '更新时间（UTC）'],
-  ['status', '状态', statusLabels], ['symbol', '品种'], ['side', '方向', sideLabels],
+  ['status', '状态', statusLabels], ['statusChangedAt', '状态变更时间（UTC）'],
+  ['abandonReason', '放弃原因'], ['symbol', '品种'], ['side', '方向', sideLabels],
   ['timeframe', '分析周期'], ['marketState', '市场状态', marketLabels],
   ['keyStructure', '关键结构'], ['reason', '入场理由'],
   ['entryPrice', '计划入场价'], ['stopLoss', '止损价'], ['takeProfit', '止盈价'],
@@ -31,6 +32,7 @@ export async function exportPlansArchive(plans) {
   zip.folder('images');
   const markdown = ['# 开仓计划', '', `共 ${plans.length} 份已保存计划，包含全部状态。`, '',
     '按创建时间从新到旧排列；创建时间相同按唯一标识降序排列。未保存的编辑内容不在本次导出中。', '',
+    '“已执行”表示已实际开仓，不代表已平仓。状态变更时间缺失时显示“未记录”。', '',
     '解压整个 ZIP 后打开本文件，保留 images 文件夹的位置即可离线查看截图。', ''];
 
   plans.forEach((plan, planIndex) => {
@@ -38,8 +40,11 @@ export async function exportPlansArchive(plans) {
     markdown.push(`## 计划 ${planIndex + 1}`, '');
     for (const [key, label, labels] of fields) {
       const value = plan[key];
-      const display = labels && Object.hasOwn(labels, value) ? `${labels[value]}（${value}）` : value;
-      markdown.push(`### ${label}`, '', textBlock(display), '');
+      if (key === 'abandonReason' && plan.status !== 'abandoned' && !value) continue;
+      const display = key === 'statusChangedAt' && !value ? '未记录'
+        : labels && Object.hasOwn(labels, value) ? `${labels[value]}（${value}）` : value;
+      const fieldLabel = key === 'abandonReason' && plan.status !== 'abandoned' ? '上次放弃原因' : label;
+      markdown.push(`### ${fieldLabel}`, '', textBlock(display), '');
     }
     const extra = Object.fromEntries(Object.entries(plan).filter(([key]) => !knownFields.has(key)));
     if (Object.keys(extra).length) markdown.push('### 其他已保存内容', '', textBlock(extra), '');
