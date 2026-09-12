@@ -1,0 +1,21 @@
+// Convenience labels for local records; broker-specific codes may differ.
+export const commonSymbols = [
+  { code: 'XAUUSD', name: '黄金' },
+  { code: 'XAGUSD', name: '白银' },
+  { code: 'EURUSD', name: '欧元 / 美元' },
+  { code: 'GBPUSD', name: '英镑 / 美元' },
+  { code: 'USDJPY', name: '美元 / 日元' },
+  { code: 'USDCHF', name: '美元 / 瑞士法郎' },
+  { code: 'AUDUSD', name: '澳元 / 美元' },
+  { code: 'USDCAD', name: '美元 / 加元' },
+  { code: 'NZDUSD', name: '新西兰元 / 美元' },
+  { code: 'EURJPY', name: '欧元 / 日元' },
+  { code: 'GBPJPY', name: '英镑 / 日元' },
+  { code: 'USOIL', name: '美国原油' },
+  { code: 'UKOIL', name: '布伦特原油' },
+  { code: 'US30', name: '道琼斯指数' },
+  { code: 'NAS100', name: '纳斯达克 100 指数' },
+  { code: 'SPX500', name: '标普 500 指数' },
+  { code: 'BTCUSD', name: '比特币 / 美元' },
+  { code: 'ETHUSD', name: '以太坊 / 美元' },
+]

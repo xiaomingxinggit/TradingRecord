@@ -9,6 +9,7 @@ import {
 import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import PlanStatusMenu from './PlanStatusMenu.vue'
+import SymbolSelect from './SymbolSelect.vue'
 import { statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
 
@@ -35,6 +36,7 @@ const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('des
 const files = ref<PlanUpload[]>([]), saving = ref(false), pageNumber = ref(1)
 const previewOpen = ref(false), previewIndex = ref(0)
 const selectedStatus = ref<'draft' | 'ready'>('draft'), initialSnapshot = ref('')
+const pendingSymbol = ref<string | null>(null)
 const changingStatusId = ref(''), statusError = ref(''), viewingPlan = ref(false)
 const abandonDialog = ref(false), abandonPlan = ref<Plan | null>(null), abandonReason = ref(''), abandonError = ref('')
 const temporaryUrls = new Set<string>()
@@ -62,7 +64,7 @@ const previewUrls = computed(() => editing.value ? files.value.flatMap(f => f.ur
 const title = computed(() => ({ list: '开仓计划', view: '计划详情', new: '新建计划', edit: '编辑计划' })[mode.value])
 const planRatio = computed(() => riskReward(editing.value ? form.value : activePlan.value))
 const rules = computed<FormRules<PlanForm>>(() => ({
-  symbol: [{ required: requiredBasics.value, whitespace: true, message: '待执行或已执行计划需要交易品种。', trigger: 'blur' }, { max: 40, message: '品种最多 40 个字符。', trigger: 'blur' }],
+  symbol: [{ validator: (_rule, _value, callback) => callback(pendingSymbol.value !== null ? new Error('请先选择品种候选或按 Enter 确认输入，当前输入尚未保存。') : undefined), trigger: 'change' }, { required: requiredBasics.value, whitespace: true, message: '待执行或已执行计划需要交易品种。', trigger: 'blur' }, { max: 40, message: '品种最多 40 个字符。', trigger: 'blur' }],
   side: [{ required: requiredBasics.value, message: '待执行或已执行计划需要选择做多或做空。', trigger: 'change' }],
   timeframe: [{ required: requiredBasics.value, message: '待执行或已执行计划需要分析周期。', trigger: 'change' }],
   reason: [{ required: requiredBasics.value, whitespace: true, message: '待执行或已执行计划需要入场理由。', trigger: 'blur' }, { max: 5000, message: '入场理由最多 5000 字。', trigger: 'blur' }],
@@ -166,11 +168,16 @@ function closeAbandon(done?: () => void) {
   else abandonDialog.value = false
 }
 function snapshot() {
-  return JSON.stringify({ form: form.value, files: files.value.map(f => ({ uid: f.uid, id: f.existingId })) })
+  return JSON.stringify({ form: form.value, pendingSymbol: pendingSymbol.value, files: files.value.map(f => ({ uid: f.uid, id: f.existingId })) })
+}
+function symbolPendingChanged(query: string | null) {
+  pendingSymbol.value = query
+  if (query === null) formRef.value?.clearValidate('symbol')
 }
 function releasePreviews() { temporaryUrls.forEach(url => URL.revokeObjectURL(url)); temporaryUrls.clear() }
 function prepareForm(plan?: Plan) {
   releasePreviews()
+  pendingSymbol.value = null
   form.value = plan ? { symbol: plan.symbol, side: plan.side,
     timeframe: plan.timeframe, marketState: plan.marketState, keyStructure: plan.keyStructure,
     reason: plan.reason, entryPrice: plan.entryPrice ?? undefined, stopLoss: plan.stopLoss ?? undefined,
@@ -309,7 +316,7 @@ defineExpose({ showList: backToList })
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>{{ mode === 'new' ? '保存草稿可稍后补全' : '保存修改会保留当前状态' }}</span></div></template>
         <ElForm ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="saving" scroll-to-error @submit.prevent="savePlan()">
           <div class="plan-three-columns">
-            <ElFormItem label="交易品种" prop="symbol"><ElInput id="plan-symbol" v-model="form.symbol" maxlength="40" placeholder="例如 XAUUSD" clearable/></ElFormItem>
+            <ElFormItem label="交易品种" prop="symbol"><SymbolSelect v-model="form.symbol" :disabled="saving" @pending-change="symbolPendingChanged"/></ElFormItem>
             <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
             <ElFormItem label="分析周期" prop="timeframe"><ElSelect v-model="form.timeframe" placeholder="选择周期" clearable><ElOption v-for="timeframe in timeframes" :key="timeframe" :label="timeframe" :value="timeframe"/></ElSelect></ElFormItem>
           </div>
