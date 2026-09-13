@@ -28,16 +28,25 @@ const sections = ref(['plans'])
           <ElText>只有实际切换状态才记录服务端的状态变更时间。新计划首次切换前、以及缺少此信息的历史计划显示“未记录”；普通内容保存或重复同状态不刷新此时间。</ElText>
         </div>
       </ElCollapseItem>
+      <ElCollapseItem title="关联交易与复盘" name="reviews">
+        <div class="page-stack">
+          <ElText>进入“交易复盘”，手动导入 MT5 完整历史报告（HTML、HTM、XLSX，单份不超过 25 MB）。仅支持报告中注明 Hedge / 对冲模式、具备公司、服务器、账户编号、币种及报告日期的独立持仓。不会扫描根目录或自动导入。</ElText>
+          <ElText>待关联交易支持品种、来源账户、开仓日期筛选。选择一个或多个持仓，手动选择原计划，并为每个持仓填写用途和备注；一个计划可以关联多个持仓，同一持仓只能关联一个计划。在详情中可修改用途、明确解除或更换关联。</ElText>
+          <ElText>看板按全部账户统计待关联持仓、待复盘计划、已复盘计划；有持仓关联的计划才进入复盘队列。在复盘详情中核对原计划与实际执行，填写“做得好的地方”或“下次改进”后即可完成；也可先保存草稿。</ElText>
+          <ElText>重复导入保留关联和总结。较新报告的实际结果更新、追加或解除关联后，已完成复盘标记“有更新待补充”，原文字保留。计划的草稿、待执行、已执行、已放弃状态不会随交易或复盘自动改变。</ElText>
+          <ElAlert title="金额按账户及币种分别统计。未平仓、不完整记录不计入已实现净额，资金流水不算交易利润。报告止损 / 止盈不代表最初设置。分拆或重复持仓行、净额持仓及仅有订单 / 成交的报告不会猜测重建；独立未平仓分区暂不导入。" type="info" show-icon :closable="false"/>
+        </div>
+      </ElCollapseItem>
       <ElCollapseItem title="导出 Markdown 与截图" name="export">
         <div class="page-stack">
           <ElText>点击“导出数据”，下载 ZIP 压缩包，其中包含 UTF-8 的“开仓计划.md”和 images 文件夹中的原始截图。导出全部四种状态的已保存计划及状态变更时间、放弃原因，不受列表分页与排序选择影响。</ElText>
-          <ElText>解压整个 ZIP 后，用 Markdown 阅读器打开文件；截图使用相对路径引用，保留文件夹结构即可离线查看。文字中的中文、多行内容及特殊字符会按原文保留。</ElText>
+          <ElText>每份计划会附带已关联持仓、来源账户和币种分组统计及已保存复盘。未关联持仓不包含在导出中。解压整个 ZIP 后，用 Markdown 阅读器打开文件；保留 images 文件夹结构即可离线查看截图。中文、多行及特殊字符会按原文保留。</ElText>
           <ElAlert title="导出不会保存或丢弃正在编辑的内容；本次下载只包含已保存版本。尚无已保存计划或导出失败时，页面会给出提示。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
       <ElCollapseItem title="本地保存与备份" name="backup">
         <div class="page-stack">
-          <ElText>计划和截图保存在项目 data/trading.sqlite 数据库中。刷新页面或重启服务后仍会保留，编辑完成后需再次保存。</ElText>
+          <ElText>计划、截图、导入持仓、关联和复盘保存在当前项目 data/trading.sqlite 数据库中。刷新页面或重启服务后仍会保留，编辑完成后需再次保存。原始上传报告不存入数据库，请自行保留原文件。</ElText>
           <ElText>完整备份时，先停止所有使用数据库的服务，再复制整个 data 文件夹。恢复前也应停止服务并备份当前 data，然后放回备份文件夹。</ElText>
           <ElAlert title="服务运行中可能存在 WAL / SHM 文件，请停服后复制整个 data 文件夹。Markdown ZIP 用于阅读和分享，应用目前不支持从 ZIP 恢复数据。" type="info" show-icon :closable="false"/>
         </div>

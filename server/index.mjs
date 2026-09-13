@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createPlansRouter } from './plans.mjs';
+import { createReviewsRouter } from './review-routes.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicError = (status, message) => Object.assign(new Error(message), { status });
@@ -26,6 +27,7 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     next();
   });
   app.use('/api/plans', createPlansRouter(app.locals.store.plans));
+  app.use('/api/reviews', createReviewsRouter(app.locals.store.reviews));
   app.use('/api', (_req, _res, next) => next(publicError(404, '接口不存在。')));
 
   const distDir = join(projectDir, 'dist');
@@ -36,8 +38,8 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     });
   });
   app.use((error, _req, res, _next) => {
-    if (error.type === 'entity.parse.failed') return res.status(400).json({ error: '状态请求的 JSON 格式无效。' });
-    if (error.type === 'entity.too.large') return res.status(413).json({ error: '请求内容过大，请缩短放弃原因后重试。' });
+    if (error.type === 'entity.parse.failed') return res.status(400).json({ error: '请求的 JSON 格式无效。' });
+    if (error.type === 'entity.too.large') return res.status(413).json({ error: '请求内容过大，请缩短文字或减少本次关联数量后重试。' });
     const status = error.status ?? 500;
     if (status >= 500) console.error(error);
     res.status(status).json({ error: status >= 500 ? '处理失败，请稍后重试。' : error.message });

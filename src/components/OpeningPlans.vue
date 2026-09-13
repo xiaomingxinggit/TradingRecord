@@ -10,6 +10,7 @@ import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import PlanStatusMenu from './PlanStatusMenu.vue'
 import SymbolSelect from './SymbolSelect.vue'
+import PlanReviewEntry from './PlanReviewEntry.vue'
 import { statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
 
@@ -29,6 +30,7 @@ interface PlanForm extends Omit<Plan, 'id' | 'images' | 'createdAt' | 'updatedAt
 }
 interface PlanUpload extends UploadUserFile { existingId?: string }
 
+const emit = defineEmits<{ openReview: [planId: string] }>()
 const plans = ref<Plan[]>([]), loading = ref(true), error = ref(''), imageError = ref('')
 const mode = ref<'list' | 'view' | 'new' | 'edit'>('list'), activePlan = ref<Plan | null>(null)
 const formRef = ref<FormInstance>(), uploadRef = ref<UploadInstance>()
@@ -194,24 +196,33 @@ function createPlan() {
   activePlan.value = null; prepareForm(); mode.value = 'new'
   void nextTick(() => document.querySelector<HTMLInputElement>('#plan-symbol')?.focus())
 }
-async function viewPlan(plan: Plan) {
-  if (actionBusy.value || abandonDialog.value) return
+async function viewPlan(plan: Pick<Plan, 'id'>) {
+  if (actionBusy.value || abandonDialog.value) return false
   viewingPlan.value = true
   statusError.value = ''
   error.value = ''
-  try { activePlan.value = (await request<{ plan: Plan }>(`/api/plans/${encodeURIComponent(plan.id)}`)).plan; mode.value = 'view' }
-  catch (e) { error.value = (e as Error).message }
+  try { activePlan.value = (await request<{ plan: Plan }>(`/api/plans/${encodeURIComponent(plan.id)}`)).plan; mode.value = 'view'; return true }
+  catch (e) { error.value = (e as Error).message; return false }
   finally { viewingPlan.value = false }
 }
 function editPlan() { if (activePlan.value && !actionBusy.value && !abandonDialog.value) { statusError.value = ''; prepareForm(activePlan.value); mode.value = 'edit' } }
-async function backToList() {
-  if (actionBusy.value || abandonDialog.value) return
+async function canLeave() {
+  if (actionBusy.value || abandonDialog.value) return false
   if (editing.value && snapshot() !== initialSnapshot.value) {
     try { await ElMessageBox.confirm('当前修改尚未保存。离开后将丢弃这些修改。', '离开编辑', { confirmButtonText: '离开', cancelButtonText: '继续编辑', type: 'warning' }) }
-    catch { return }
+    catch { return false }
   }
+  return true
+}
+async function backToList() {
+  if (!await canLeave()) return false
   releasePreviews(); files.value = []; mode.value = 'list'; error.value = ''; imageError.value = ''
   window.scrollTo({ top: 0 })
+  return true
+}
+async function openPlanById(id: string, edit = false) {
+  if (!await canLeave()) return
+  if (await viewPlan({ id }) && edit) editPlan()
 }
 function imageChanged(file: UploadFile) {
   if (!file.raw) return
@@ -270,7 +281,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
 }
 onMounted(() => { void loadPlans(); window.addEventListener('paste', pasteImages); window.addEventListener('beforeunload', beforeUnload) })
 onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', pasteImages); window.removeEventListener('beforeunload', beforeUnload) })
-defineExpose({ showList: backToList })
+defineExpose({ showList: backToList, canLeave, openPlanById })
 </script>
 
 <template>
@@ -367,6 +378,7 @@ defineExpose({ showList: backToList })
         <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
         <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
       </ElCard>
+      <PlanReviewEntry v-if="mode === 'view' && activePlan" :key="activePlan.id" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px" @open="id => emit('openReview', id)"/>
       <ElDialog v-model="abandonDialog" title="标记已放弃" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">

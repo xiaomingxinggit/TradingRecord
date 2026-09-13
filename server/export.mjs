@@ -12,7 +12,31 @@ const fields = [
   ['keyStructure', '关键结构'], ['reason', '入场理由'],
   ['entryPrice', '计划入场价'], ['stopLoss', '止损价'], ['takeProfit', '止盈价'],
 ];
-const knownFields = new Set([...fields.map(([key]) => key), 'images']);
+const knownFields = new Set([...fields.map(([key]) => key), 'images', 'executionReview']);
+const purposeLabels = { unclassified: '未分类', initial: '首次入场', add: '加仓', reentry: '重新入场' };
+const reviewLabels = { draft: '待复盘 / 草稿', completed: '已复盘', needs_update: '有更新待补充' };
+const adherenceLabels = { unrated: '未评定', yes: '是', partial: '部分遵守', no: '否' };
+function reviewMarkdown(execution) {
+  if (!execution) return [];
+  const lines = ['### 实际交易与复盘', '', '金额按来源账户及币种分别统计；仅完整平仓计入已实现净额。交易时间为报告中的经纪商服务器时间，未转换时区。', ''];
+  if (!execution.positions.length) lines.push('尚未关联持仓。', '');
+  for (const group of execution.totals) {
+    lines.push('#### 来源与已实现净额', '', textBlock({ 公司: group.source.broker, 服务器: group.source.server, 账户: group.source.accountNumber, 币种: group.source.currency,
+      完整平仓数: group.closed, 未平仓数: group.open, 不完整数: group.incomplete, 已实现净额: group.netProfit }), '');
+  }
+  execution.positions.forEach((p, index) => {
+    lines.push(`#### 关联持仓 ${index + 1}`, '', textBlock({ 来源公司: p.source.broker, 服务器: p.source.server, 账户: p.source.accountNumber, 币种: p.source.currency,
+      持仓编号: p.ticket, 品种: p.symbol, 方向: sideLabels[p.side], 交易量: p.volume, 开仓时间: p.openTime, 平仓时间: p.closeTime,
+      开仓价: p.openPrice, 平仓价: p.closePrice, 报告止损: p.reportedStopLoss, 报告止盈: p.reportedTakeProfit,
+      状态: { closed: '完整平仓', open: '未平仓', incomplete: '信息不完整' }[p.resultState], 盈利: p.profit, 手续费: p.commission, 库存费: p.swap, 其他费用: p.fees,
+      已实现净额: p.netProfit, 持仓用途: purposeLabels[p.link.purpose], 关联备注: p.link.note, 报告注释: p.comment,
+      来源文件: p.sourceFile, 报告日期: p.reportDate, 待核对: p.issues }), '');
+  });
+  lines.push('报告止损 / 止盈只是导出时的记录，不代表最初设置，不能据此推断原始风险。', '', '#### 复盘总结', '',
+    textBlock({ 状态: reviewLabels[execution.review.state], 遵守原计划: adherenceLabels[execution.review.adherence], 做得好的地方: execution.review.good,
+      下次改进: execution.review.improve, 上次完成时间UTC: execution.review.completedAt, 更新时间UTC: execution.review.updatedAt }), '');
+  return lines;
+}
 
 // A fence longer than any user-supplied backtick run preserves Chinese,
 // multiline text and Markdown/HTML characters as literal content.
@@ -33,7 +57,8 @@ export async function exportPlansArchive(plans) {
   const markdown = ['# 开仓计划', '', `共 ${plans.length} 份已保存计划，包含全部状态。`, '',
     '按创建时间从新到旧排列；创建时间相同按唯一标识降序排列。未保存的编辑内容不在本次导出中。', '',
     '“已执行”表示已实际开仓，不代表已平仓。状态变更时间缺失时显示“未记录”。', '',
-    '解压整个 ZIP 后打开本文件，保留 images 文件夹的位置即可离线查看截图。', ''];
+    '解压整个 ZIP 后打开本文件，保留 images 文件夹的位置即可离线查看截图。', '',
+    '包含已关联的实际持仓及复盘；未关联持仓不在本导出中。ZIP 不是数据库完整备份，也不能用于恢复应用。', ''];
 
   plans.forEach((plan, planIndex) => {
     const planNumber = String(planIndex + 1).padStart(6, '0');
@@ -59,7 +84,7 @@ export async function exportPlansArchive(plans) {
       markdown.push(`#### 截图 ${imageIndex + 1}`, '', '原始文件名：', '', textBlock(image.name), '',
         `![截图 ${imageIndex + 1}](${path})`, '');
     });
-    markdown.push('---', '');
+    markdown.push(...reviewMarkdown(plan.executionReview), '---', '');
   });
   zip.file('开仓计划.md', markdown.join('\n'), { compression: 'DEFLATE', compressionOptions: { level: 6 } });
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/zip' });

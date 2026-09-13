@@ -116,7 +116,7 @@ function validateImages(files) {
   });
 }
 
-export function createPlanStore(db) {
+export function createPlanStore(db, reviewSnapshot = () => null) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS plans (
       id TEXT PRIMARY KEY,
@@ -175,7 +175,7 @@ export function createPlanStore(db) {
       // read transaction before asynchronously building the archive.
       db.exec('BEGIN');
       try {
-        const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id) }));
+        const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id), executionReview: reviewSnapshot(row.id) }));
         db.exec('COMMIT');
         return plans;
       } catch (error) {

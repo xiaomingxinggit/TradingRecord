@@ -1,15 +1,36 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { ElAlert, ElAside, ElBreadcrumb, ElBreadcrumbItem, ElButton, ElConfigProvider, ElContainer, ElDrawer, ElFooter, ElHeader, ElMain, ElMessage, ElSpace, ElTag, ElText } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { ChevronRight, CircleHelp, Menu } from 'lucide-vue-next'
 import AppNavigation from './components/AppNavigation.vue'
 import OpeningPlans from './components/OpeningPlans.vue'
+import ReviewWorkspace from './components/ReviewWorkspace.vue'
 import HelpDialog from './components/HelpDialog.vue'
 
 const plansRef = ref<InstanceType<typeof OpeningPlans>>()
+const reviewsRef = ref<InstanceType<typeof ReviewWorkspace>>()
+const page = ref<'plans' | 'reviews'>('plans'), navigating = ref(false), navigationVersion = ref(0)
 const mobileMenu = ref(false), help = ref(false), exporting = ref(false), exportError = ref('')
-function showPlans() { mobileMenu.value = false; void plansRef.value?.showList() }
+async function navigate(target: 'plans' | 'reviews', id?: string, edit = false) {
+  if (navigating.value) { navigationVersion.value++; return }
+  navigating.value = true
+  try {
+    if (target === page.value) {
+      if (target === 'plans') { if (id) await plansRef.value?.openPlanById(id, edit); else await plansRef.value?.showList() }
+      else { if (id) await reviewsRef.value?.showReview(id); else await reviewsRef.value?.showBoard() }
+    } else {
+      const allowed = page.value === 'plans' ? await plansRef.value?.canLeave() : await reviewsRef.value?.canLeave()
+      if (!allowed) return
+      page.value = target; await nextTick()
+      if (id && target === 'plans') await plansRef.value?.openPlanById(id, edit)
+      if (id && target === 'reviews') await reviewsRef.value?.showReview(id)
+    }
+    mobileMenu.value = false
+  } finally { navigating.value = false; navigationVersion.value++ }
+}
+function showPlans() { void navigate('plans') }
+function showReviews() { void navigate('reviews') }
 function showHelp() { mobileMenu.value = false; help.value = true }
 async function exportData() {
   if (exporting.value) return
@@ -38,20 +59,21 @@ async function exportData() {
 <template>
   <ElConfigProvider :locale="zhCn">
     <ElContainer class="app-layout">
-      <ElAside width="232px" class="desktop-sidebar"><AppNavigation :exporting="exporting" @plans="showPlans" @export="exportData" @help="showHelp"/></ElAside>
+      <ElAside width="232px" class="desktop-sidebar"><AppNavigation :key="navigationVersion" :active="page" :exporting="exporting" @plans="showPlans" @reviews="showReviews" @export="exportData" @help="showHelp"/></ElAside>
       <ElContainer direction="vertical" class="content-layout">
         <ElHeader height="68px" class="app-header">
-          <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>开仓计划</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
+          <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>{{ page === 'plans' ? '开仓计划' : '交易复盘' }}</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
           <ElSpace><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
         </ElHeader>
         <ElMain class="workspace-main">
           <ElAlert v-if="exportError" :title="exportError" type="error" show-icon class="export-alert" @close="exportError = ''"/>
-          <OpeningPlans ref="plansRef"/>
+          <OpeningPlans v-if="page === 'plans'" ref="plansRef" @open-review="id => navigate('reviews', id)"/>
+          <ReviewWorkspace v-else ref="reviewsRef" @open-plan="(id, edit) => navigate('plans', id, edit)"/>
         </ElMain>
         <ElFooter height="auto" class="app-footer"><ElText type="info" size="small">TradeLog · 记下每一次入场的想法。</ElText></ElFooter>
       </ElContainer>
     </ElContainer>
-    <ElDrawer v-model="mobileMenu" title="工作空间" direction="ltr" size="264px" class="navigation-drawer"><AppNavigation :exporting="exporting" @plans="showPlans" @export="exportData" @help="showHelp"/></ElDrawer>
+    <ElDrawer v-model="mobileMenu" title="工作空间" direction="ltr" size="264px" class="navigation-drawer"><AppNavigation :key="navigationVersion" :active="page" :exporting="exporting" @plans="showPlans" @reviews="showReviews" @export="exportData" @help="showHelp"/></ElDrawer>
     <HelpDialog v-model="help"/>
   </ElConfigProvider>
 </template>
