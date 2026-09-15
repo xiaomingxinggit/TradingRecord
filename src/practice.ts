@@ -19,19 +19,21 @@ export const practiceReviewLabel = (value: PracticeReview['state']) => ({ draft:
 export const practiceSide = (value: string) => value === 'buy' ? '做多' : value === 'sell' ? '做空' : '未填写'
 export const practiceMoney = (value: number | null) => value === null || !Number.isFinite(value) ? '—' : value.toLocaleString('zh-CN', { maximumSignificantDigits: 15 })
 export const practiceTime = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '未记录'
-export function emptyPractice(): PracticeContent {
-  return { status: 'draft', symbol: 'XAUUSD', side: '', timeframe: '', openTime: null, openPrice: null, volume: null, closeTime: null, closePrice: null,
-    netProfit: null, currency: 'USD', marketState: 'uncertain', keyStructure: '', reason: '', stopLoss: null, takeProfit: null }
+export type PracticeForm = Pick<PracticeContent, 'status' | 'symbol' | 'side' | 'timeframe' | 'marketState' | 'keyStructure' | 'reason' | 'stopLoss' | 'takeProfit'>
+export function emptyPractice(): PracticeForm {
+  return { status: 'draft', symbol: 'XAUUSD', side: '', timeframe: '', marketState: 'uncertain', keyStructure: '', reason: '', stopLoss: null, takeProfit: null }
 }
-export function contentOf(record: PracticeRecord): PracticeContent {
-  return Object.fromEntries(Object.keys(emptyPractice()).map(key => [key, record[key as keyof PracticeContent]])) as unknown as PracticeContent
+export function contentOf(record: PracticeRecord): PracticeForm {
+  return Object.fromEntries(Object.keys(emptyPractice()).map(key => [key, record[key as keyof PracticeForm]])) as unknown as PracticeForm
 }
-export function practiceStats(records: PracticeRecord[]) {
-  const closed = records.filter(record => record.status === 'closed' && record.netProfit !== null && Number.isFinite(record.netProfit))
-  const wins = closed.filter(record => record.netProfit! > 0).length
-  const losses = closed.filter(record => record.netProfit! < 0).length
-  return { closed: closed.length, wins, losses, even: closed.length - wins - losses,
-    winRate: closed.length ? wins / closed.length * 100 : null,
-    netProfit: Number(closed.reduce((sum, record) => sum + record.netProfit!, 0).toPrecision(15)),
+export const hasPracticeResult = (record: PracticeRecord) => record.status === 'closed' && typeof record.netProfit === 'number' && Number.isFinite(record.netProfit) && typeof record.currency === 'string' && !!record.currency.trim()
+export function practiceStats(records: PracticeRecord[], currency: string) {
+  const closed = records.filter(record => record.status === 'closed')
+  const samples = closed.filter(record => hasPracticeResult(record) && record.currency === currency)
+  const wins = samples.filter(record => record.netProfit! > 0).length
+  const losses = samples.filter(record => record.netProfit! < 0).length
+  return { closed: closed.length, samples: samples.length, wins, losses, even: samples.length - wins - losses,
+    winRate: samples.length ? wins / samples.length * 100 : null,
+    netProfit: samples.length ? Number(samples.reduce((sum, record) => sum + record.netProfit!, 0).toPrecision(15)) : null,
     pending: closed.filter(record => record.review.state !== 'completed').length }
 }

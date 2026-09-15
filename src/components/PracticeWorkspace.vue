@@ -2,33 +2,33 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElAlert, ElButton, ElCard, ElEmpty, ElOption, ElPagination, ElSelect, ElSkeleton, ElTable, ElTableColumn, ElTabPane, ElTabs, ElTag } from 'element-plus'
 import type { TableInstance } from 'element-plus'
-import { ArrowRight, BookOpenCheck, CheckCheck, CircleDollarSign, Percent, Plus, RefreshCw } from 'lucide-vue-next'
+import { ArrowRight, BookOpenCheck, CheckCheck, Plus, RefreshCw } from 'lucide-vue-next'
 import { request } from '../reviews/api'
-import { practiceMoney, practiceReviewLabel, practiceSide, practiceStats, practiceStatus, practiceStatuses, practiceTime, type PracticeRecord } from '../practice'
+import { hasPracticeResult, practiceMoney, practiceReviewLabel, practiceSide, practiceStats, practiceStatus, practiceStatuses, practiceTime, type PracticeRecord } from '../practice'
 import PracticeRecordDetail from './PracticeRecord.vue'
 import '../practice.css'
 const records = ref<PracticeRecord[]>([]), loading = ref(false), error = ref(''), tab = ref('board')
-const currency = ref('USD'), status = ref('all'), reviewStatus = ref('pending'), page = ref(1)
+const currency = ref(''), status = ref('all'), reviewStatus = ref('pending'), page = ref(1)
 const order = ref<'ascending' | 'descending'>('descending'), table = ref<TableInstance>()
 const activeId = ref(''), reviewFirst = ref(false), detail = ref<InstanceType<typeof PracticeRecordDetail>>()
-const currencies = computed(() => [...new Set(['USD', ...records.value.map(record => record.currency)])].sort())
-const scoped = computed(() => records.value.filter(record => record.currency === currency.value))
-const stats = computed(() => practiceStats(scoped.value))
-const displayed = computed(() => scoped.value.filter(record => tab.value === 'reviews'
+const currencies = computed(() => [...new Set(records.value.filter(hasPracticeResult).map(record => record.currency))].sort())
+watch(currencies, values => { if (!values.includes(currency.value)) currency.value = values[0] || '' }, { immediate: true })
+const stats = computed(() => practiceStats(records.value, currency.value))
+const displayed = computed(() => records.value.filter(record => tab.value === 'reviews'
   ? record.status === 'closed' && (reviewStatus.value === 'all' || (reviewStatus.value === 'completed' ? record.review.state === 'completed' : record.review.state !== 'completed'))
   : status.value === 'all' || record.status === status.value).sort((a, b) => {
     const diff = a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
     return order.value === 'ascending' ? diff : -diff
   }))
 const rows = computed(() => displayed.value.slice((page.value - 1) * 12, page.value * 12))
-watch([tab, currency, status, reviewStatus, order], () => { page.value = 1 })
-async function load(initial = false) {
+watch([tab, status, reviewStatus, order], () => { page.value = 1 })
+async function load() {
   loading.value = true; error.value = ''
-  try { records.value = (await request<{ records: PracticeRecord[] }>('/api/practice')).records; if (initial && records.value.length && !records.value.some(record => record.currency === currency.value)) currency.value = records.value[0]!.currency; page.value = Math.min(page.value, Math.max(1, Math.ceil(displayed.value.length / 12))) }
+  try { records.value = (await request<{ records: PracticeRecord[] }>('/api/practice')).records; page.value = Math.min(page.value, Math.max(1, Math.ceil(displayed.value.length / 12))) }
   catch (e) { error.value = (e as Error).message }
   finally { loading.value = false }
 }
-function remember(record: PracticeRecord) { records.value = [record, ...records.value.filter(item => item.id !== record.id)]; currency.value = record.currency }
+function remember(record: PracticeRecord) { records.value = [record, ...records.value.filter(item => item.id !== record.id)] }
 function open(id: string, review = false) { if (!loading.value) { activeId.value = id; reviewFirst.value = review; window.scrollTo({ top: 0 }) } }
 function back() { activeId.value = ''; page.value = Math.min(page.value, Math.max(1, Math.ceil(displayed.value.length / 12))); window.scrollTo({ top: 0 }) }
 async function canLeave() { return !loading.value && (detail.value ? await detail.value.canLeave() : true) }
@@ -37,21 +37,22 @@ function sort({ order: next }: { order: 'ascending' | 'descending' | null }) {
   order.value = next || (order.value === 'ascending' ? 'descending' : 'ascending')
   if (!next) void nextTick(() => table.value?.sort('createdAt', order.value))
 }
-onMounted(() => load(true))
+onMounted(load)
 defineExpose({ canLeave, showBoard })
 </script>
 <template>
   <PracticeRecordDetail v-if="activeId" ref="detail" :key="activeId" :record-id="activeId === 'new' ? undefined : activeId" :review-first="reviewFirst" @back="back" @saved="remember"/>
   <section v-else class="practice-workspace page-stack">
-    <div class="practice-heading"><div><span class="practice-eyebrow">SIMULATION JOURNAL</span><h1>模拟练习</h1><p>在外部工具回放行情，在这里记下分析、交易结果与复盘。</p></div><div class="practice-actions"><ElButton :disabled="loading" @click="load()"><RefreshCw :size="15"/>刷新</ElButton><ElButton type="primary" :disabled="loading" @click="open('new')"><Plus :size="16"/>新建模拟记录</ElButton></div></div>
+    <div class="practice-heading"><div><span class="practice-eyebrow">SIMULATION JOURNAL</span><h1>模拟练习</h1><p>在外部工具回放行情，在这里记下分析、状态与复盘。</p></div><div class="practice-actions"><ElButton :disabled="loading" @click="load()"><RefreshCw :size="15"/>刷新</ElButton><ElButton type="primary" :disabled="loading" @click="open('new')"><Plus :size="16"/>新建模拟记录</ElButton></div></div>
     <ElAlert v-if="error" :title="error" type="error" show-icon :closable="false"/>
-    <ElCard shadow="never" class="practice-tabs-card"><div class="practice-scope"><ElTabs v-model="tab"><ElTabPane name="board" label="看板"/><ElTabPane name="records" label="交易记录"/><ElTabPane name="reviews" label="复盘"/></ElTabs><div><label for="practice-currency">币种范围</label><ElSelect id="practice-currency" v-model="currency" :disabled="loading" aria-label="模拟统计及列表币种范围"><ElOption v-for="code in currencies" :key="code" :value="code" :label="code || '未填币种（仅草稿 / 持仓中）'"/></ElSelect></div></div><p class="practice-hint">当前看板与列表仅包含 {{ currency || '未填币种的' }} 模拟记录，共 {{ scoped.length }} 条。不同币种分别统计，与真实交易数据独立。</p></ElCard>
+    <ElCard shadow="never" class="practice-tabs-card"><ElTabs v-model="tab"><ElTabPane name="board" label="看板"/><ElTabPane name="records" label="交易记录"/><ElTabPane name="reviews" label="复盘"/></ElTabs><p class="practice-hint">共 {{ records.length }} 条模拟记录。状态和复盘进度按全部记录统计，列表不按币种隐藏记录。</p></ElCard>
     <ElSkeleton v-if="loading && !records.length" :rows="8" animated/>
     <template v-else-if="tab === 'board'">
-      <div class="practice-stats"><ElCard shadow="never"><CheckCheck :size="22"/><span>已平仓笔数</span><strong>{{ stats.closed }}</strong><small>仅统计明确填写结果的已平仓记录</small></ElCard><ElCard shadow="never"><Percent :size="22"/><span>胜率</span><strong>{{ stats.winRate === null ? '—' : `${stats.winRate.toFixed(1)}%` }}</strong><small>净盈利笔数 / 已平仓笔数</small></ElCard><ElCard shadow="never"><CircleDollarSign :size="22"/><span>累计净盈亏 · {{ currency || '未填币种' }}</span><strong :class="stats.netProfit < 0 ? 'practice-loss' : stats.netProfit > 0 ? 'practice-win' : ''">{{ practiceMoney(stats.netProfit) }}</strong><small>手填净盈亏（含费用）合计</small></ElCard><ElCard shadow="never"><BookOpenCheck :size="22"/><span>待复盘笔数</span><strong>{{ stats.pending }}</strong><small>已平仓且待复盘 / 待补充</small></ElCard></div>
-      <ElCard shadow="never"><div class="practice-outcomes"><span>盈利 <strong class="practice-win">{{ stats.wins }}</strong> 笔</span><span>亏损 <strong class="practice-loss">{{ stats.losses }}</strong> 笔</span><span>持平 <strong>{{ stats.even }}</strong> 笔</span><ElButton link type="primary" @click="tab = 'reviews'; reviewStatus = 'pending'">去复盘<ArrowRight :size="15"/></ElButton></div><p class="practice-hint">持平计入胜率分母。草稿和模拟持仓中不计入已实现盈亏或胜率；未填净盈亏不当作 0。</p></ElCard>
-      <ElCard v-if="!scoped.length" shadow="never"><ElEmpty description="当前币种还没有模拟记录"><ElButton type="primary" @click="open('new')">直接记录第一笔</ElButton></ElEmpty></ElCard>
-      <ElCard v-else shadow="never"><div class="practice-section-head"><div><h2>一次记录，持续补充</h2><p class="practice-hint">先保存草稿，模拟开仓后补充信息，平仓后填写净盈亏并完成复盘。</p></div><ElButton type="primary" plain @click="tab = 'records'">查看交易记录<ArrowRight :size="15"/></ElButton></div></ElCard>
+      <div class="practice-stats practice-progress-grid"><ElCard shadow="never"><CheckCheck :size="22"/><span>已平仓笔数</span><strong>{{ stats.closed }}</strong><small>全部模拟记录，按手动已平仓状态统计</small></ElCard><ElCard shadow="never"><BookOpenCheck :size="22"/><span>待复盘笔数</span><strong>{{ stats.pending }}</strong><small>全部已平仓且待复盘 / 待补充的记录</small><ElButton link type="primary" @click="tab = 'reviews'; reviewStatus = 'pending'">去复盘<ArrowRight :size="15"/></ElButton></ElCard></div>
+      <ElCard v-if="currencies.length" shadow="never"><template #header><div class="practice-section-head"><h2>历史盈亏</h2><ElSelect v-model="currency" :disabled="loading" aria-label="历史盈亏统计币种" class="practice-filter"><ElOption v-for="code in currencies" :key="code" :value="code" :label="code"/></ElSelect></div></template><p class="practice-hint practice-form-note">仅 {{ currency }} 已平仓且有明确净盈亏的 {{ stats.samples }} 个历史样本；币种选择仅影响本区，不影响状态计数和列表。</p><div v-if="stats.samples" class="practice-outcomes"><span>胜率 <strong>{{ stats.winRate?.toFixed(1) }}%</strong></span><span>累计净盈亏 <strong>{{ practiceMoney(stats.netProfit) }}</strong> {{ currency }}</span><span>盈利 <strong class="practice-win">{{ stats.wins }}</strong> 笔</span><span>亏损 <strong class="practice-loss">{{ stats.losses }}</strong> 笔</span><span>持平 <strong>{{ stats.even }}</strong> 笔</span></div><p v-else>暂无盈亏数据</p><p class="practice-hint">胜率 = 净盈利样本数 / 有效盈亏样本数，明确记录的持平计入分母；缺少结果或币种的记录不计入。</p></ElCard>
+      <ElCard v-else shadow="never"><h2>暂无盈亏数据</h2><p class="practice-hint">开平仓信息暂不采集；没有包含有效净盈亏与币种的已平仓历史样本。</p></ElCard>
+      <ElCard v-if="!records.length" shadow="never"><ElEmpty description="还没有模拟记录"><ElButton type="primary" @click="open('new')">直接记录第一笔</ElButton></ElEmpty></ElCard>
+      <ElCard v-else shadow="never"><div class="practice-section-head"><div><h2>一次记录，持续补充</h2><p class="practice-hint">保存分析与截图，手动选择状态；标记已平仓后即可填写复盘，无需补录开平仓信息。</p></div><ElButton type="primary" plain @click="tab = 'records'">查看交易记录<ArrowRight :size="15"/></ElButton></div></ElCard>
     </template>
     <ElCard v-else shadow="never" class="practice-list-card">
       <template #header><div class="practice-section-head"><h2>{{ tab === 'records' ? '模拟交易记录' : '已平仓模拟复盘' }} <ElTag type="info" size="small">{{ displayed.length }}</ElTag></h2><ElSelect v-if="tab === 'records'" v-model="status" aria-label="模拟记录状态筛选" class="practice-filter"><ElOption label="全部状态" value="all"/><ElOption v-for="s in practiceStatuses" :key="s.value" :label="s.label" :value="s.value"/></ElSelect><ElSelect v-else v-model="reviewStatus" aria-label="模拟复盘状态筛选" class="practice-filter"><ElOption label="待复盘 / 待补充" value="pending"/><ElOption label="已复盘" value="completed"/><ElOption label="全部已平仓" value="all"/></ElSelect></div></template>

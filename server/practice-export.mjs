@@ -8,7 +8,7 @@ export function appendPracticeArchive(zip, records, textBlock) {
   if (!records.length) return;
   const md = ['# 模拟练习', '', '这些是用户在外部工具回放行情时手工填写的模拟记录，与真实交易、MT5 持仓和开仓计划独立。', '',
     `共 ${records.length} 条已保存记录，包含全部状态，按真实创建时间从新到旧排列。回放时间为用户填写的行情时钟，不转换时区。`, '',
-    '净盈亏（含费用）由用户填写，不由成交价推算。仅已平仓的明确净盈亏参与统计；胜率为净盈利笔数 / 已平仓笔数，持平计入分母；不同币种不相加。', '',
+    '开平仓时间、价格、仓位、净盈亏和币种暂不采集，历史值原样保留，缺失值不补为零。状态和复盘进度按全部记录统计；历史盈亏仅统计已平仓且有明确有限净盈亏及币种的样本。胜率为净盈利样本数 / 同币种有效盈亏样本数，明确持平计入分母；不同币种不相加。', '',
     '复盘完成后记录或截图有改动会标记待补充，原总结保留；状态退回草稿 / 模拟持仓中后不进入已平仓复盘队列。未保存修改不在导出内。', ''];
   for (const [index, record] of records.entries()) {
     md.push(`## 模拟记录 ${index + 1}`, '', textBlock({ 唯一标识: record.id, 状态: states[record.status], 品种: record.symbol, 方向: sides[record.side] || '未填写', 分析周期: record.timeframe,

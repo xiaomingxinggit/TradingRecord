@@ -18,29 +18,21 @@ function numeric(value, name, positive = false) {
   if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 1e12 || (positive && value <= 0)) throw fail(400, `${name}需为${positive ? '大于 0 的' : ''}有限数值，绝对值不超过一万亿。`);
   return value;
 }
-function replayTime(value, name) {
-  if (value == null || value === '') return null;
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) throw fail(400, `${name}请填写有效的回放行情时间。`);
-  const date = new Date(`${value.replace(' ', 'T')}Z`);
-  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 19).replace('T', ' ') !== value) throw fail(400, `${name}日期或时间无效。`);
-  return value; // A wall-clock label from the external replay, never a real trade timestamp.
-}
-function validate(body) {
+function validate(body, previous) {
   object(body);
   const record = {
     status: body.status ?? 'draft', symbol: text(body.symbol, '品种', 40), side: body.side ?? '', timeframe: body.timeframe ?? '',
-    openTime: replayTime(body.openTime, '模拟开仓时间'), openPrice: numeric(body.openPrice, '模拟开仓价', true), volume: numeric(body.volume, '仓位 / 手数', true),
-    closeTime: replayTime(body.closeTime, '模拟平仓时间'), closePrice: numeric(body.closePrice, '模拟平仓价', true),
-    netProfit: numeric(body.netProfit, '净盈亏'), currency: text(body.currency, '币种', 12).toUpperCase(),
+    // These fields are no longer collected. Ignore old clients' copies and
+    // preserve the values read inside the transaction, including explicit zero.
+    openTime: previous?.openTime ?? null, openPrice: previous?.openPrice ?? null, volume: previous?.volume ?? null,
+    closeTime: previous?.closeTime ?? null, closePrice: previous?.closePrice ?? null,
+    netProfit: previous?.netProfit ?? null, currency: previous?.currency ?? '',
     marketState: body.marketState ?? 'uncertain', keyStructure: text(body.keyStructure, '关键结构', 300), reason: text(body.reason, '开仓分析', 5000),
     stopLoss: numeric(body.stopLoss, '计划止损', true), takeProfit: numeric(body.takeProfit, '计划止盈', true),
   };
   if (!states.includes(record.status) || !['', 'buy', 'sell'].includes(record.side) || !periods.includes(record.timeframe)) throw fail(400, '状态、方向或分析周期无效。');
   if (!['uptrend', 'downtrend', 'range', 'uncertain'].includes(record.marketState)) throw fail(400, '请选择有效的市场状态。');
-  if (record.currency && !/^[A-Z][A-Z0-9]{1,11}$/.test(record.currency)) throw fail(400, '币种请填写 2 至 12 位字母或数字代码，首位为字母，例如 USD。');
-  if (record.openTime && record.closeTime && record.closeTime < record.openTime) throw fail(400, '模拟平仓时间不得早于模拟开仓时间。');
-  if (record.status !== 'draft' && (!record.symbol || !record.side || !record.timeframe || !record.openTime || record.openPrice === null)) throw fail(400, '模拟持仓中或已平仓需填写品种、方向、周期、模拟开仓时间和开仓价。');
-  if (record.status === 'closed' && (!record.closeTime || record.closePrice === null || record.netProfit === null || !record.currency)) throw fail(400, '已平仓还需填写模拟平仓时间、平仓价、净盈亏和币种；持平请明确填写 0。');
+  if (record.status !== 'draft' && (!record.symbol || !record.side || !record.timeframe)) throw fail(400, '模拟持仓中或已平仓需填写品种、方向和分析周期。');
   return record;
 }
 function purpose(value) { if (!['before', 'review'].includes(value)) throw fail(400, '截图用途请选择开仓前或复盘。'); return value; }
@@ -88,7 +80,8 @@ export function createPracticeStore(db) {
       return all.all().map(row => ({ ...hydrate(row), images: exportedImages.all(row.id) }));
     },
     save(id, body, files) {
-      const record = validate(body), added = validateImages(files);
+      object(body);
+      const added = validateImages(files);
       if (!Array.isArray(body.keepImages) || !Array.isArray(body.newImagePurposes) || body.newImagePurposes.length !== added.length
         || body.keepImages.length + added.length > 4) throw fail(400, '截图列表无效，每条模拟记录最多保存 4 张。');
       const keep = body.keepImages.map(image => { object(image); return { id: text(image.id, '截图标识', 64), purpose: purpose(image.purpose) }; });
@@ -97,6 +90,7 @@ export function createPracticeStore(db) {
       return transaction(() => {
         const previous = id ? requireRow(id) : null, recordId = id ?? randomUUID();
         if (previous && body.expectedRevision !== previous.record_revision) throw fail(409, '这条模拟记录已被其他页面修改。当前输入和截图仍保留，请复制需保留的文字，再重新读取最新记录。');
+        const record = validate(body, previous ? JSON.parse(previous.payload) : null);
         const oldImages = previous ? images.all(id) : [];
         if (keep.some(image => !oldImages.some(old => old.id === image.id))) throw fail(400, '保留截图不属于当前模拟记录，请重新读取后保存。');
         const changed = !previous || previous.payload !== JSON.stringify(record) || added.length > 0
