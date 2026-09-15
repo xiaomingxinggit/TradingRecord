@@ -19,11 +19,130 @@
   --el-menu-item-height:46px;
   --purple:var(--el-color-primary);
   --border:var(--el-border-color-light);
+  --app-page-bg:#f7f8fb;
+  --app-shell-bg:#fff;
+  --app-profit-positive:#21896b;
+  --app-profit-negative:#cb5064;
+  --app-status-shadow:0 4px 16px rgba(56,49,69,.10);
+  color-scheme:light;
   font-family:var(--el-font-family);
   color:var(--el-text-color-primary);
-  background:#f7f8fb;
+  background:var(--app-page-bg);
   font-synthesis:none;
   -webkit-font-smoothing:antialiased;
+}
+/* Element Plus supplies component dark styles; this palette keeps the app purple.
+   Root variables also reach dialogs, popovers and pickers teleported to body. */
+html.dark {
+  color-scheme:dark;
+  --app-page-bg:#17151e;
+  --app-shell-bg:#1d1a24;
+  --el-bg-color-page:var(--app-page-bg);
+  --el-bg-color:#201d28;
+  --el-bg-color-overlay:#26222f;
+  --el-fill-color-blank:#201d28;
+  --el-fill-color-extra-light:#23202c;
+  --el-fill-color-lighter:#292531;
+  --el-fill-color-light:#322d3d;
+  --el-fill-color:#3b3447;
+  --el-fill-color-dark:#453d51;
+  --el-fill-color-darker:#50465d;
+  --el-text-color-primary:#eee9f8;
+  --el-text-color-regular:#d8d0e4;
+  --el-text-color-secondary:#b4a9c3;
+  --el-text-color-placeholder:#a397b2;
+  --el-text-color-disabled:#857a93;
+  --el-border-color-extra-light:#342e3f;
+  --el-border-color-lighter:#3e364a;
+  --el-border-color-light:#494054;
+  --el-border-color:#574b65;
+  --el-border-color-dark:#6a5d77;
+  --el-border-color-darker:#80718d;
+  --el-disabled-bg-color:var(--el-fill-color-light);
+  --el-disabled-text-color:var(--el-text-color-disabled);
+  --el-disabled-border-color:var(--el-border-color-lighter);
+  --el-color-primary:#b79aef;
+  --el-color-primary-dark-2:#cbb4f5;
+  --el-color-primary-light-3:#8972b6;
+  --el-color-primary-light-5:#665584;
+  --el-color-primary-light-7:#4c3e64;
+  --el-color-primary-light-8:#3e3352;
+  --el-color-primary-light-9:#322a43;
+  --el-color-success:#6dceb0;
+  --el-color-success-dark-2:#92dfc5;
+  --el-color-success-light-3:#539f88;
+  --el-color-success-light-5:#407b6a;
+  --el-color-success-light-7:#305b50;
+  --el-color-success-light-8:#29483f;
+  --el-color-success-light-9:#243a34;
+  --el-color-danger:#f18f9f;
+  --el-color-danger-dark-2:#f5a8b5;
+  --el-color-danger-light-3:#b96e80;
+  --el-color-danger-light-5:#8b5364;
+  --el-color-danger-light-7:#643c4b;
+  --el-color-danger-light-8:#50323f;
+  --el-color-danger-light-9:#402b36;
+  --el-color-warning:#e9b968;
+  --el-color-warning-dark-2:#f1cb8c;
+  --el-color-warning-light-3:#b58f53;
+  --el-color-warning-light-5:#897044;
+  --el-color-warning-light-7:#645337;
+  --el-color-warning-light-8:#51432f;
+  --el-color-warning-light-9:#403629;
+  --el-color-info:#b4a9c3;
+  --el-color-info-dark-2:#cec3db;
+  --el-color-info-light-3:#8a8199;
+  --el-color-info-light-5:#696174;
+  --el-color-info-light-7:#4f475b;
+  --el-color-info-light-8:#433b4e;
+  --el-color-info-light-9:#36303f;
+  --app-profit-positive:#6dceb0;
+  --app-profit-negative:#f18f9f;
+  --app-status-shadow:0 6px 24px rgba(0,0,0,.4);
+  --app-solid-primary:#7954bc;
+  --app-brand-bg:var(--app-solid-primary);
+  --plan-label:var(--el-text-color-regular);
+  --plan-title:var(--el-text-color-primary);
+  --plan-secondary:var(--el-text-color-secondary);
+  --plan-placeholder:var(--el-text-color-placeholder);
+  --plan-accent:var(--el-color-primary);
+  --plan-tint-bg:var(--el-color-primary-light-9);
+  --plan-soft-bg:var(--el-fill-color-extra-light);
+  --plan-border:var(--el-border-color-lighter);
+  --plan-upload-border:var(--el-border-color);
+  --plan-table-bg:var(--el-fill-color-lighter);
+  --plan-hover-bg:var(--el-fill-color-light);
+}
+/* Bright purple for text; a deeper purple behind white selected-control labels. */
+html.dark .el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+  --el-button-bg-color:var(--app-solid-primary);
+  --el-button-border-color:var(--app-solid-primary);
+  --el-button-hover-bg-color:#8861c6;
+  --el-button-hover-border-color:#8861c6;
+  --el-button-active-bg-color:#6844a7;
+  --el-button-active-border-color:#6844a7;
+  --el-button-disabled-bg-color:var(--el-fill-color-light);
+  --el-button-disabled-border-color:var(--el-border-color-lighter);
+  --el-button-disabled-text-color:var(--el-text-color-disabled);
+}
+html.dark .el-radio-button {
+  --el-radio-button-checked-bg-color:var(--app-solid-primary);
+  --el-radio-button-checked-border-color:var(--app-solid-primary);
+}
+html.dark .el-checkbox {
+  --el-checkbox-checked-bg-color:var(--app-solid-primary);
+  --el-checkbox-checked-input-border-color:var(--app-solid-primary);
+}
+html.dark .el-pagination.is-background .el-pager li.is-active:not(.is-disabled) { background:var(--app-solid-primary); }
+html.dark :is(.el-date-table,.el-month-table,.el-year-table) td:is(.current,.start-date,.end-date):not(.disabled) .el-date-table-cell__text {
+  color:var(--el-color-white);
+  background:var(--app-solid-primary);
+}
+html.dark .el-popper.is-dark,
+html.dark .el-popper.is-dark>.el-popper__arrow::before {
+  background:var(--el-bg-color-overlay);
+  border-color:var(--el-border-color);
+  color:var(--el-text-color-primary);
 }
 *{box-sizing:border-box}
 body{margin:0;min-width:320px}
@@ -31,9 +150,9 @@ h1,h2,h3,p{margin:0}
 h2{font-size:16px;font-weight:600}h3{font-size:14px;font-weight:600}
 a{color:var(--el-color-primary)}
 .app-layout{min-height:100dvh}
-.desktop-sidebar{position:sticky;top:0;height:100dvh;background:white;border-right:1px solid var(--border);flex-shrink:0}
+.desktop-sidebar{position:sticky;top:0;height:100dvh;background:var(--app-shell-bg);border-right:1px solid var(--border);flex-shrink:0}
 .content-layout{min-width:0}
-.app-header{display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:white;border-bottom:1px solid var(--border)}
+.app-header{display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:var(--app-shell-bg);border-bottom:1px solid var(--border)}
 .workspace-main{padding:30px 32px;max-width:1600px;width:100%;margin:0 auto;overflow:visible}
 .app-footer{padding:0 32px 24px;max-width:1600px;width:100%;margin:auto}
 .page-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:28px}
@@ -47,6 +166,8 @@ a{color:var(--el-color-primary)}
 .el-form-item__content{min-width:0}
 .navigation-drawer .el-drawer__body{padding:0;overflow:hidden}
 .mobile-menu-toggle.el-button{display:none}
+.header-actions{flex-shrink:0}
+@media(max-width:480px){.local-status{display:none}.app-header{gap:8px}}
 @media(max-width:1000px){.desktop-sidebar{width:208px!important}.workspace-main{padding:26px 24px}.app-header{padding:0 24px}.app-footer{padding:0 24px 22px}}
 @media(max-width:760px){.desktop-sidebar{display:none}.mobile-menu-toggle.el-button{display:inline-flex}.app-header{padding:0 16px}.app-header .el-breadcrumb__item:first-child{display:none}.workspace-main{padding:24px 16px}.app-footer{padding:0 16px 20px}.page-heading{gap:12px;margin-bottom:22px}.page-heading h1{font-size:24px}.page-heading p{font-size:13px}.local-status{font-size:11px}.el-card{--el-card-padding:17px}.el-drawer{max-width:100vw}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

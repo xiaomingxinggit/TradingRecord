@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#7860d7" />
+    <script>
+      // Apply before Vue and its styles load. Unavailable storage keeps light mode.
+      try {
+        if (localStorage.getItem('tradelog.theme') === 'dark') {
+          document.documentElement.classList.add('dark');
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#17151e');
+        }
+      } catch { /* Theme preferences must never block startup. */ }
+    </script>
+    <style>html{background:#f7f8fb;color-scheme:light}html.dark{background:#17151e;color-scheme:dark}</style>
     <title>TradeLog · 开仓计划</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>

@@ -55,6 +55,12 @@ const sections = ref(['plans'])
           <ElAlert title="导出不会保存或丢弃正在编辑的内容；本次下载只包含已保存版本。真实计划与模拟记录均为空或导出失败时，页面会给出提示。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
+      <ElCollapseItem title="日间与暗黑模式" name="appearance">
+        <div class="page-stack">
+          <ElText>点击右上角月亮切换到暗黑模式，点击太阳切回日间模式。首次使用默认日间；选择保存在当前浏览器中，同一访问地址刷新或重新打开后继续使用。</ElText>
+          <ElText>浏览器禁止本地存储时，仍可在当前页面切换。主题覆盖计划、交易复盘、模拟练习和弹窗，截图保持原图。</ElText>
+        </div>
+      </ElCollapseItem>
       <ElCollapseItem title="本地保存与备份" name="backup">
         <div class="page-stack">
           <ElText>计划、截图、导入持仓、关联、真实复盘和模拟记录保存在当前项目 data/trading.sqlite 数据库中。刷新页面或重启服务后仍会保留，编辑完成后需再次保存。原始上传报告不存入数据库，请自行保留原文件。</ElText>

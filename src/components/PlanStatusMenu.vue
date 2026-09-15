@@ -11,7 +11,7 @@ const popoverRef = ref<PopoverInstance>(), triggerRef = ref<HTMLButtonElement>()
 const menuOpen = ref(false), selectionCycle = ref(0)
 const current = computed(() => statusInfo(props.status))
 const blocked = computed(() => !!(props.disabled || props.loading))
-const popoverStyle = { padding: '6px', minWidth: '0', maxWidth: 'calc(100vw - 16px)', borderRadius: '9px', boxShadow: '0 4px 16px rgba(56, 49, 69, .10)' }
+const popoverStyle = { padding: '6px', minWidth: '0', maxWidth: 'calc(100vw - 16px)', borderRadius: '9px', boxShadow: 'var(--app-status-shadow)' }
 const popperOptions = { modifiers: [
   { name: 'preventOverflow', options: { padding: 8, rootBoundary: 'viewport', tether: false } },
   { name: 'flip', options: { padding: 8 } },

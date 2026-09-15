@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import { ElAlert, ElAside, ElBreadcrumb, ElBreadcrumbItem, ElButton, ElConfigProvider, ElContainer, ElDrawer, ElFooter, ElHeader, ElMain, ElMessage, ElSpace, ElTag, ElText } from 'element-plus'
+import { ElAlert, ElAside, ElBreadcrumb, ElBreadcrumbItem, ElButton, ElConfigProvider, ElContainer, ElDrawer, ElFooter, ElHeader, ElMain, ElMessage, ElSpace, ElTag, ElText, ElTooltip } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import { ChevronRight, CircleHelp, Menu } from 'lucide-vue-next'
+import { ChevronRight, CircleHelp, Menu, Moon, Sun } from 'lucide-vue-next'
+import { darkMode, themeAction, toggleTheme } from './ui/theme'
 import AppNavigation from './components/AppNavigation.vue'
 import OpeningPlans from './components/OpeningPlans.vue'
 import ReviewWorkspace from './components/ReviewWorkspace.vue'
@@ -68,7 +69,7 @@ async function exportData() {
       <ElContainer direction="vertical" class="content-layout">
         <ElHeader height="68px" class="app-header">
           <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>{{ { plans: '开仓计划', reviews: '交易复盘', practice: '模拟练习' }[page] }}</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
-          <ElSpace><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
+          <ElSpace class="header-actions"><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElTooltip :content="themeAction" placement="bottom"><ElButton text circle :aria-label="themeAction" :title="themeAction" @click="toggleTheme"><Sun v-if="darkMode" :size="19" aria-hidden="true"/><Moon v-else :size="19" aria-hidden="true"/></ElButton></ElTooltip><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
         </ElHeader>
         <ElMain class="workspace-main">
           <ElAlert v-if="exportError" :title="exportError" type="error" show-icon class="export-alert" @close="exportError = ''"/>
