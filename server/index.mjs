@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createPlansRouter } from './plans.mjs';
 import { createReviewsRouter } from './review-routes.mjs';
+import { createPracticeRouter } from './practice.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicError = (status, message) => Object.assign(new Error(message), { status });
@@ -28,6 +29,7 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
   });
   app.use('/api/plans', createPlansRouter(app.locals.store.plans));
   app.use('/api/reviews', createReviewsRouter(app.locals.store.reviews));
+  app.use('/api/practice', createPracticeRouter(app.locals.store.practice));
   app.use('/api', (_req, _res, next) => next(publicError(404, '接口不存在。')));
 
   const distDir = join(projectDir, 'dist');

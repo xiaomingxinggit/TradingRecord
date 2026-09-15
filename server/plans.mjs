@@ -104,7 +104,7 @@ function imageName(originalName) {
   return [...basename(name.replaceAll('\\', '/')).replace(/[\u0000-\u001f\u007f]/g, '')].slice(0, 180).join('') || '行情截图';
 }
 
-function validateImages(files) {
+export function validateImages(files) {
   if (files.length > MAX_IMAGES) throw publicError(400, '每个计划最多保存 4 张截图。');
   return files.map((file) => {
     if (file.size > MAX_IMAGE_SIZE) throw publicError(413, '每张截图不能超过 5 MB。');
@@ -116,7 +116,7 @@ function validateImages(files) {
   });
 }
 
-export function createPlanStore(db, reviewSnapshot = () => null) {
+export function createPlanStore(db, reviewSnapshot = () => null, practiceSnapshot = () => []) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS plans (
       id TEXT PRIMARY KEY,
@@ -176,8 +176,9 @@ export function createPlanStore(db, reviewSnapshot = () => null) {
       db.exec('BEGIN');
       try {
         const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id), executionReview: reviewSnapshot(row.id) }));
+        const practice = practiceSnapshot();
         db.exec('COMMIT');
-        return plans;
+        return { plans, practice };
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;
@@ -300,7 +301,8 @@ export function createPlansRouter(store) {
   router.get('/', (_req, res) => res.json({ plans: store.list() }));
   router.get('/export', async (_req, res) => {
     try {
-      const archive = await exportPlansArchive(store.exportSnapshot());
+      const { plans, practice } = store.exportSnapshot();
+      const archive = await exportPlansArchive(plans, practice);
       res.set('Content-Type', 'application/zip');
       res.set('Content-Disposition', `attachment; filename="opening-plans.zip"; filename*=UTF-8''${encodeURIComponent('开仓计划.zip')}`);
       res.send(archive);

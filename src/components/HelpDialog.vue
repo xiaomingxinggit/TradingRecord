@@ -37,16 +37,27 @@ const sections = ref(['plans'])
           <ElAlert title="金额按账户及币种分别统计。未平仓、不完整记录不计入已实现净额，资金流水不算交易利润。报告止损 / 止盈不代表最初设置。分拆或重复持仓行、净额持仓及仅有订单 / 成交的报告不会猜测重建；独立未平仓分区暂不导入。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
+      <ElCollapseItem title="模拟练习：手工记录与统计" name="practice">
+        <div class="page-stack">
+          <ElText>在外部工具回放 K 线，本系统只记录你的模拟交易。进入“模拟练习”，可直接新建一条记录；内部“看板 / 交易记录 / 复盘”共用同一批记录，无需先建练习任务、账户或原计划。</ElText>
+          <ElText>品种默认 XAUUSD，可搜索或自定义；币种默认 USD，可改。草稿允许不完整；模拟持仓中需品种、方向、周期、模拟开仓时间和开仓价；已平仓还需平仓时间、平仓价、手填净盈亏和币种。持平要明确填 0，未填写不当作 0。净盈亏含费用，不根据开平仓价自动推算。</ElText>
+          <ElText>模拟时间是手填的回放行情时间，真实创建 / 更新时间由系统另行记录。仓位、分析、止损止盈、截图均为选填。截图支持粘贴 / 上传 / 放大 / 移除，共用一套附件，标记“开仓前”或“复盘”，每张 ≤ 5 MB、共最多 4 张。</ElText>
+          <ElText>看板按所选币种统计已平仓笔数、胜率、累计净盈亏、待复盘笔数，及盈利 / 亏损 / 持平笔数。胜率 = 净盈利笔数 ÷ 已平仓笔数，持平计入分母；草稿 / 模拟持仓中不计入已实现盈亏和胜率，不同币种不相加。看板与列表的币种范围一致。</ElText>
+          <ElText>复盘页只列已平仓的同一条模拟记录。可保存复盘草稿，完成前至少填写一项总结。完成后修改记录或截图会保留总结并标记待补充；退回未平仓状态后暂离开已平仓复盘队列。过期页面保存时会明确提示，输入保留；离开或刷新时沿用未保存保护。</ElText>
+          <ElAlert title="模拟记录、截图和复盘保存在独立数据表中，与真实计划、MT5 持仓和真实交易复盘隔离。这里只做手工记录，不接入行情，不播放 K 线，不进行虚拟撮合。" type="info" show-icon :closable="false"/>
+        </div>
+      </ElCollapseItem>
       <ElCollapseItem title="导出 Markdown 与截图" name="export">
         <div class="page-stack">
           <ElText>点击“导出数据”，下载 ZIP 压缩包，其中包含 UTF-8 的“开仓计划.md”和 images 文件夹中的原始截图。导出全部四种状态的已保存计划及状态变更时间、放弃原因，不受列表分页与排序选择影响。</ElText>
           <ElText>每份计划会附带已关联持仓、来源账户和币种分组统计及已保存复盘。未关联持仓不包含在导出中。解压整个 ZIP 后，用 Markdown 阅读器打开文件；保留 images 文件夹结构即可离线查看截图。中文、多行及特殊字符会按原文保留。</ElText>
-          <ElAlert title="导出不会保存或丢弃正在编辑的内容；本次下载只包含已保存版本。尚无已保存计划或导出失败时，页面会给出提示。" type="info" show-icon :closable="false"/>
+          <ElText>有模拟记录时，同一个 ZIP 追加独立的“模拟练习.md”与 practice-images 图片目录，包含全部已保存模拟记录、状态、模拟时间、创建时间、币种、净盈亏、分析、复盘和截图，不受页面筛选影响。即使没有真实计划，也可以导出模拟记录。</ElText>
+          <ElAlert title="导出不会保存或丢弃正在编辑的内容；本次下载只包含已保存版本。真实计划与模拟记录均为空或导出失败时，页面会给出提示。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
       <ElCollapseItem title="本地保存与备份" name="backup">
         <div class="page-stack">
-          <ElText>计划、截图、导入持仓、关联和复盘保存在当前项目 data/trading.sqlite 数据库中。刷新页面或重启服务后仍会保留，编辑完成后需再次保存。原始上传报告不存入数据库，请自行保留原文件。</ElText>
+          <ElText>计划、截图、导入持仓、关联、真实复盘和模拟记录保存在当前项目 data/trading.sqlite 数据库中。刷新页面或重启服务后仍会保留，编辑完成后需再次保存。原始上传报告不存入数据库，请自行保留原文件。</ElText>
           <ElText>完整备份时，先停止所有使用数据库的服务，再复制整个 data 文件夹。恢复前也应停止服务并备份当前 data，然后放回备份文件夹。</ElText>
           <ElAlert title="服务运行中可能存在 WAL / SHM 文件，请停服后复制整个 data 文件夹。Markdown ZIP 用于阅读和分享，应用目前不支持从 ZIP 恢复数据。" type="info" show-icon :closable="false"/>
         </div>

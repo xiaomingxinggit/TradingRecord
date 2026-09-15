@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ElButton, ElCard, ElDivider, ElIcon, ElLink, ElMenu, ElMenuItem, ElScrollbar, ElText } from 'element-plus'
-import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, BookOpenCheck, ShieldCheck } from 'lucide-vue-next'
+import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, BookOpenCheck, NotebookPen, ShieldCheck } from 'lucide-vue-next'
 
-defineProps<{ exporting: boolean; active: 'plans' | 'reviews' }>()
-const emit = defineEmits<{ plans: []; reviews: []; export: []; help: [] }>()
+defineProps<{ exporting: boolean; active: 'plans' | 'reviews' | 'practice' }>()
+const emit = defineEmits<{ plans: []; reviews: []; practice: []; export: []; help: [] }>()
 </script>
 
 <template>
@@ -12,7 +12,7 @@ const emit = defineEmits<{ plans: []; reviews: []; export: []; help: [] }>()
     <ElScrollbar class="navigation-scroll">
       <div class="navigation-content">
         <ElText tag="p" type="info" size="small" class="nav-label">工作空间</ElText>
-        <ElMenu :default-active="active" class="workspace-menu" @select="index => index === 'plans' ? emit('plans') : emit('reviews')"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>开仓计划</span></ElMenuItem><ElMenuItem index="reviews"><ElIcon><BookOpenCheck/></ElIcon><span>交易复盘</span></ElMenuItem></ElMenu>
+        <ElMenu :default-active="active" class="workspace-menu" @select="index => index === 'plans' ? emit('plans') : index === 'reviews' ? emit('reviews') : emit('practice')"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>开仓计划</span></ElMenuItem><ElMenuItem index="reviews"><ElIcon><BookOpenCheck/></ElIcon><span>交易复盘</span></ElMenuItem><ElMenuItem index="practice"><ElIcon><NotebookPen/></ElIcon><span>模拟练习</span></ElMenuItem></ElMenu>
         <ElDivider/>
         <ElText tag="p" type="info" size="small" class="nav-label">数据管理</ElText>
         <ElButton text class="export-button" :loading="exporting" :disabled="exporting" @click="emit('export')"><ArrowDownToLine v-if="!exporting" :size="19"/><span>{{ exporting ? '正在导出…' : '导出数据' }}</span></ElButton>

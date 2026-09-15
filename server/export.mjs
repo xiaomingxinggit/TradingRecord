@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { appendPracticeArchive } from './practice-export.mjs';
 
 const statusLabels = { draft: '草稿', ready: '待执行', executed: '已执行', abandoned: '已放弃' };
 const sideLabels = { buy: '做多', sell: '做空' };
@@ -48,9 +49,9 @@ function textBlock(value) {
   return `${fence}text\n${text}\n${fence}`;
 }
 
-export async function exportPlansArchive(plans) {
-  if (!plans.length) {
-    throw Object.assign(new Error('还没有已保存的开仓计划，请先保存一份计划后再导出。'), { status: 409 });
+export async function exportPlansArchive(plans, practice = []) {
+  if (!plans.length && !practice.length) {
+    throw Object.assign(new Error('还没有已保存的开仓计划或模拟记录，请先保存后再导出。'), { status: 409 });
   }
   const zip = new JSZip();
   zip.folder('images');
@@ -87,5 +88,6 @@ export async function exportPlansArchive(plans) {
     markdown.push(...reviewMarkdown(plan.executionReview), '---', '');
   });
   zip.file('开仓计划.md', markdown.join('\n'), { compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  appendPracticeArchive(zip, practice, textBlock);
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/zip' });
 }
