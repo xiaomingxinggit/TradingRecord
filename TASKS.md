@@ -4,6 +4,27 @@
 
 ## 当前任务
 
+### ADJ-01：按持仓记录止盈止损调整
+
+- 状态：done（补修实现及约定的静态/构建检查完成，未做运行时验收）。负责人：DEV；保留初版提交，另增修复提交。
+- 用户已确认：一个计划管理多笔持仓；在计划价位下面增加独立栏，通过图片识别/手动录入，按持仓编号分别保留调整链路，详情和 Markdown 导出均可见。
+- 依赖：既有 OCR 已在初版 09f0438 纳入依赖，同一提交混入了 ADJ-01；890b481 仅补充初版入口。未按原建议拆成 OCR 前置提交，原负责人任务已归档，未获得额外完成确认。保留实际历史，不将此前构建通过当成需求已完成。
+- 文件：本轮修改 TASKS.md、ARCHITECTURE.md、server/plan-adjustments.mjs、server/export.mjs、src/components/PlanAdjustments.vue、OpeningPlans.vue、PriceOcr.vue 及 src/plans.css。PriceOcr 仅扩展目标提示、活动状态、取消隔离及主题；未修改 README、依赖、OCR 引擎或 server/index.mjs。
+- 设计依据：ARCHITECTURE.md 的 ADJ-01 三项决策。选择已有明确来源持仓，或手动建立独立记录组；手动组可显式绑定当前计划已关联的 MT5 持仓，不按编号猜测账户。
+- 验收：不同持仓历史隔离；追加和重试不丢失/重复记录；普通计划编辑不改历史；保本止损可记录；OCR 填入正确目标；取消/错误/切换不误保存；已有记录和截图兼容；Element Plus 日夜主题；导出包含全部已保存调整和来源。
+- 验证：不测试、不启动 API/浏览器验收；允许一次必要 npm run build 与静态差异检查，发现修改/失败才追加。不得对真实库执行迁移或试写。
+- 交付：保留 09f0438 / 890b481，修复代码与本任务文档另提交，不推送；OCR 引擎及依赖不重写。
+- 模型调度：向 DEV 请求 Luna/medium，要求为复杂实现派发 Astra/high 独立 Worker，返回简明交接；DEV 负责集成与验证。
+- 初版实际调度：spawn_agent 接受 gpt-6-astra / high、fork_turns=none，Worker 仅落盘后端即被 DEV 中断；初版 UI 由 DEV 补写后错误报告完成。此次 PM 请求 Astra/high 直接补修；接收端无模型遥测，不自行声称运行参数已验证。
+- 本轮修复范围：接入调整 OCR；可达的显式绑定；按操作内容保留重试 requestId；计划/调整两类草稿、在途/取消/切换/刷新保护；独立表单和保存；完整来源标签；按业务字段导出且排除内部请求历史。
+- 静态证据：PlanAdjustments.applyOcr 只写当前调整 draft，捕获所选目标并在 OCR 打开时锁定目标；PriceOcr 沿用单行 apply 与多行选择，编号仍明确手填。绑定使用独立 selector/form 和请求，成功仅清理绑定选择、不清空价位草稿。
+- 静态证据：appendAttempt / bindAttempt 各自按内容指纹持有 ID，失败与刷新历史不换 ID，成功或该操作内容改变才更新；重新读取发现服务器已保存时仍允许用旧 ID 确认结果。服务端事务/签名去重保留，并对已有来源组追加重新核对当前计划归属。
+- 静态证据：OpeningPlans 通过 canLeave 汇总两类草稿，返回/导航/换计划均经过该入口；同计划详情/编辑/正文保存保留调整实例。beforeUnload 覆盖两类草稿及 OCR/写请求；请求在途、确认框和 OCR 打开时阻止切换。组件卸载/planId 变化会失效旧响应。三个保存表单彼此独立，submit 阻止冒泡；计划按钮明确归属正文 form。
+- 静态证据：手动编号必填，来源标签含公司/服务器/账户/币种；Markdown 输出组 ID、原手动编号、建组/绑定时间和每条来源快照，空 SL/TP 标注“本次未设置”。用户文字使用 textBlock，adjustmentJournal 加入 knownFields，不重复输出内部 requests/signature。
+- 验证结果：本轮 1 次 `npm run build`（vue-tsc + Vite）通过；`node --check server/plan-adjustments.mjs`、`node --check server/export.mjs`、`git diff --check` 通过。仍有既有 >500 kB bundle 提示。未运行测试、OCR/API 试跑、浏览器验收，未启动服务或读取/写入真实数据库。
+- 尚未覆盖：真实图片单/多行识别准确率、浏览器离开确认实际表现、断网/超时重试及多窗口并发行为、导出文件实际阅读效果。以上只作静态代码路径核对，按用户要求留给手工运行时验收，不声称已实测。
+- 提交记录：初版 09f0438、890b481 保留；本轮代码与文档以独立修复提交交付，提交号由 Git 历史及交付消息记录，不推送。
+
 ### WF-01：落实项目分工与交接
 
 - 状态：done。负责人：PM；DEV 已完成接手核对，承担后续日常调度。
@@ -19,11 +40,10 @@
 
 ### OCR-EXISTING：现有图片识别工作
 
-- 状态：todo（待原负责人交接；不是对原实现完成度或故障的判断）。
-- 负责人：原 OCR 开发任务。新调度者不得自动接管或重复实现。
-- 已知现场：5 个已跟踪文件修改、2 个未跟踪文件；尚未提交。实现与验收情况须从原负责人交接确认。
-- 保护文件：README.md、package.json、package-lock.json、server/index.mjs、server/price-ocr.mjs、src/components/OpeningPlans.vue、src/components/PriceOcr.vue。
-- 下一步：收到继续 OCR 的授权后，确认负责人和已有验证结果，补齐目标、验收条件与文件所有权，再派工。不因当前存在差异就顺带提交或发布。
+- 状态：done（既有成果已作为 ADJ-01 依赖集成，运行时识别未验收）。
+- 交接事实：原 OCR 任务已归档，发送交接请求被工具拒绝，未获得新的完成确认。原 7 文件在 09f0438 中与初版调整功能一起提交；此前“仍未提交”的说明已失效。
+- 集成范围：README.md、package.json、package-lock.json、server/index.mjs、server/price-ocr.mjs、src/components/OpeningPlans.vue、src/components/PriceOcr.vue。既有差异/哈希在本机归档中保留，私人路径不写入本清单。
+- 后续：仅按明确任务维护。此次 ADJ-01 补修复用识别算法，仅增加组件兼容与目标隔离；没有重复实现 OCR，也未将构建通过当成识别准确率证据。
 
 ## 最近完成的基线
 

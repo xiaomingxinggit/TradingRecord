@@ -1,6 +1,6 @@
 # 架构与约束索引
 
-此文用于定位代码和约束，详细使用方式见 README。基线：`ef0f90a`；OCR 是其后的本地未提交工作，不能据此认定已发布。
+此文用于定位代码和约束，详细使用方式见 README。功能基线 `ef0f90a`；OCR 已随本地提交 `09f0438` 集成，ADJ-01 初版为 `09f0438` / `890b481`，尚未推送，不据此认定已经发布。
 
 ## 运行与数据流
 
@@ -22,7 +22,8 @@ Vue 3 + TypeScript + Vite + Element Plus → 本机 Express API → Node.js 内�
 | 模拟练习 | `src/components/PracticeWorkspace.vue`、`PracticeRecord.vue`、`PracticeImages.vue`；`src/practice.ts` | `server/practice.mjs`；tr_practice_records_v1、tr_practice_images_v1；`/api/practice` |
 | 导出 | `src/App.vue` | `server/export.mjs`、`practice-export.mjs`；GET /api/plans/export |
 | 主题 / 布局 | `src/ui/theme.ts`、`theme.css`、`element-styles.ts`；`src/components/AppNavigation.vue` | Element Plus 暗色变量与项目语义颜色，不反色截图 |
-| OCR（未提交） | `src/components/PriceOcr.vue`、OpeningPlans 集成 | `server/price-ocr.mjs`、index 挂载；本机识别，不持久化识别图片 |
+| OCR | `src/components/PriceOcr.vue`、OpeningPlans / PlanAdjustments 集成 | `server/price-ocr.mjs`、index 挂载；本机识别，不持久化识别图片 |
+| 持仓调整 | `src/components/PlanAdjustments.vue`、OpeningPlans 集成 | `server/plan-adjustments.mjs`、`server/plans.mjs`；plans.payload.adjustmentJournal；`/api/plans/:id/adjustments` 及 `/bind` |
 
 表中同一单元格省略目录的文件，沿用该单元格前一完整文件路径的目录。
 
@@ -38,6 +39,11 @@ Vue 3 + TypeScript + Vite + Element Plus → 本机 Express API → Node.js 内�
 8. 全量导出是已保存记录的 Markdown + 图片 ZIP，包含关联复盘及独立模拟记录，按一致快照读取；不包含尚未保存的输入，也不是完整 SQLite 备份。
 
 ## 已确定的工程决策
+
+- **ADJ-01 持仓调整链路**：在计划价位下按持仓分组追加止盈/止损快照，绝不覆盖原计划价位。手动组使用独立 UUID，不凭 ticket 自动匹配；已导入组使用来源明确的 position ID，服务端校验属于当前计划。手动组后续只能经用户显式选择已关联持仓来绑定；来源快照保留，解绑实盘关联不删除历史。
+- **ADJ-01 保存与兼容**：优先在现有 plans.payload 中使用服务端管理的版本化调整字段，不改数据库结构；旧记录缺失视为空。采用独立事务追加端点与请求 ID 防重复，正文 PUT 和状态 PATCH 不允许替换调整历史。新计划先保存才能记录调整；已有计划详情与编辑页都可访问，调整独立保存须在 UI 清楚说明并保留未保存输入保护。
+- **ADJ-01 数据含义**：每次记录保存 entryPrice（参考开仓价，选填）、stopLoss/takeProfit（空值表示本次未设置）、原因（选填）、服务端记录时间。允许保本/锁盈，不套用原计划的止损相对开仓价约束或计算初始 R。只校验已填价格为正有限数，不伪造真实修改时间、订单编号或账户来源。OCR 可靠识别编号才填入，无法可靠识别就手动填；不改 MT5 报告解析器。
+- **ADJ-01 草稿与重试**：调整栏是计划表单外的独立组件，同一计划查看/编辑/保存正文时保留实例和草稿。统一离开入口检查两类草稿，OCR 弹窗或写请求在途阻止切换；追加与绑定使用独立 requestId，成功或各自请求内容改变才更换。绑定仅改变组的来源，不清空价位草稿；识别只写入已选目标，识别期间锁定目标。客户端响应按 planId 与请求代数隔离。已解除关联的来源组保留历史，重新关联前不可追加；Markdown 明确输出来源快照和绑定时间，不输出内部 requests/signature。
 
 - **一个开发根目录、一套公开历史**：TradingRecord 是唯一日常入口，另一目录和私人历史仅作本机恢复归档。功能开发直接在此集成，不复制到第二个发布仓库。
 - **本地优先**：服务仅本机访问，真实数据不入 Git。迁移/备份必须考虑 WAL，使用一致性备份或停服务后完整复制，不能只随意复制正在写入的主数据库文件。

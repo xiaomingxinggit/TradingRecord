@@ -13,7 +13,7 @@ const fields = [
   ['keyStructure', '关键结构'], ['reason', '入场理由'],
   ['entryPrice', '计划入场价'], ['stopLoss', '止损价'], ['takeProfit', '止盈价'],
 ];
-const knownFields = new Set([...fields.map(([key]) => key), 'images', 'executionReview']);
+const knownFields = new Set([...fields.map(([key]) => key), 'images', 'executionReview', 'adjustmentJournal']);
 const purposeLabels = { unclassified: '未分类', initial: '首次入场', add: '加仓', reentry: '重新入场' };
 const reviewLabels = { draft: '待复盘 / 草稿', completed: '已复盘', needs_update: '有更新待补充' };
 const adherenceLabels = { unrated: '未评定', yes: '是', partial: '部分遵守', no: '否' };
@@ -41,11 +41,26 @@ function reviewMarkdown(execution) {
 function adjustmentMarkdown(journal) {
   if (!journal?.groups?.length) return [];
   const lines = ['### 持仓调整记录', '', '调整时间由服务端记录为 UTC；原计划价位保持不变。', ''];
-  for (const group of journal.groups) {
-    const source = group.sourceSnapshot ? `MT5 持仓 ${group.sourceSnapshot.ticket} · ${group.sourceSnapshot.symbol || '未填写品种'}` : `手动记录组 ${group.manualTicket || group.id}`;
-    lines.push(`#### ${source}`, '');
-    for (const entry of group.entries || []) lines.push(textBlock({记录时间UTC: entry.recordTime, 参考入场价: entry.entryPrice, 止损: entry.stopLoss, 止盈: entry.takeProfit, 原因: entry.reason}), '');
-  }
+  const sourceFields = source => source ? {
+    持仓唯一标识: source.positionId, 持仓编号: source.ticket, 品种: source.symbol, 方向: sideLabels[source.side] ?? source.side,
+    公司: source.source?.broker, 服务器: source.source?.server, 账户: source.source?.accountNumber, 币种: source.source?.currency,
+    参考开仓价: source.entryPrice, 来源文件: source.sourceFile, 报告日期: source.reportDate,
+  } : '手动记录，尚未绑定 MT5 来源';
+  journal.groups.forEach((group, groupIndex) => {
+    // User identifiers stay inside textBlock, never become Markdown headings.
+    lines.push(`#### 调整记录组 ${groupIndex + 1}`, '', textBlock({
+      分组ID: group.id, 建组方式: group.origin === 'manual' ? '手动独立组' : '已关联 MT5 持仓',
+      原手动持仓编号: group.manualTicket || '不适用', 建组时间UTC: group.createdAt,
+      显式绑定时间UTC: group.boundAt ?? '未进行手动绑定', 当前绑定来源快照: sourceFields(group.sourceSnapshot),
+    }), '');
+    (group.entries || []).forEach((entry, entryIndex) => {
+      lines.push(`##### 调整 ${entryIndex + 1}`, '', textBlock({
+        记录ID: entry.id, 记录时间UTC: entry.recordTime, 参考入场价: entry.entryPrice ?? '未填写',
+        止损: entry.stopLoss ?? '本次未设置', 止盈: entry.takeProfit ?? '本次未设置', 原因: entry.reason || '未填写',
+        记录时来源快照: sourceFields(entry.sourceSnapshot),
+      }), '');
+    });
+  });
   return lines;
 }
 

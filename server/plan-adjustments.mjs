@@ -30,6 +30,9 @@ export function positionSnapshot(position) {
 // and source information comes from the saved journal / linked MT5 positions.
 export function updateAdjustmentJournal(plan, body, kind, linkedPositions, now) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, '请提交有效的调整内容。');
+  const allowed = kind === 'append' ? ['requestId', 'groupId', 'positionId', 'manualTicket', 'entryPrice', 'stopLoss', 'takeProfit', 'reason']
+    : kind === 'bind' ? ['requestId', 'groupId', 'positionId'] : [];
+  if (!allowed.length || Object.keys(body).some(key => !allowed.includes(key))) fail(400, '调整请求包含不支持的字段。');
   const requestId = text(body.requestId, '请求编号', 100, true);
   const groupId = text(body.groupId, '记录组', 200);
   const positionId = text(body.positionId, '关联持仓', 200);
@@ -58,13 +61,16 @@ export function updateAdjustmentJournal(plan, body, kind, linkedPositions, now) 
   } else {
     if (group && (positionId || manualTicket)) fail(400, '追加时不能更换记录组来源。');
     if (!group) {
-      if (Boolean(positionId) === Boolean(manualTicket)) fail(400, '请选择已关联持仓，或填写手动持仓编号。');
+      if (Boolean(positionId) === Boolean(manualTicket)) fail(400, '请选择已关联持仓，或填写必填的手动持仓编号；不能同时指定两种来源。');
       if (positionId && journal.groups.some((item) => item.sourceSnapshot?.positionId === positionId)) fail(409, '该持仓已有调整链路，请在现有记录组中追加。');
       group = { id: positionId ? `mt5:${positionId}` : randomUUID(), origin: positionId ? 'mt5' : 'manual',
         manualTicket, sourceSnapshot: positionId ? positionSnapshot(linked(positionId)) : null,
         createdAt: now, boundAt: null, entries: [] };
       journal.groups.push(group);
     }
+    // Retain history after unlinking, but do not append to a position owned by a
+    // different plan (or no plan) based only on an old source snapshot.
+    if (group.sourceSnapshot) linked(group.sourceSnapshot.positionId);
     group.entries.push({ id: randomUUID(), requestId, recordTime: now, ...values,
       sourceSnapshot: group.sourceSnapshot ?? null });
   }

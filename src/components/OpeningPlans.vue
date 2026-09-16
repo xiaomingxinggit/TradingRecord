@@ -36,6 +36,8 @@ const emit = defineEmits<{ openReview: [planId: string] }>()
 const plans = ref<Plan[]>([]), loading = ref(true), error = ref(''), imageError = ref('')
 const mode = ref<'list' | 'view' | 'new' | 'edit'>('list'), activePlan = ref<Plan | null>(null)
 const formRef = ref<FormInstance>(), uploadRef = ref<UploadInstance>()
+const adjustmentsRef = ref<InstanceType<typeof PlanAdjustments>>()
+const planOcrOpen = ref(false), leaving = ref(false)
 const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('descending')
 const files = ref<PlanUpload[]>([]), saving = ref(false), pageNumber = ref(1)
 const previewOpen = ref(false), previewIndex = ref(0)
@@ -53,7 +55,8 @@ const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const maxImageCount = 4, maxImageSize = 5 * 1024 * 1024
 const form = ref<PlanForm>(emptyForm())
 const editing = computed(() => mode.value === 'new' || mode.value === 'edit')
-const actionBusy = computed(() => saving.value || !!changingStatusId.value || viewingPlan.value)
+const planBusy = computed(() => saving.value || !!changingStatusId.value || viewingPlan.value)
+const actionBusy = computed(() => planBusy.value || !!adjustmentsRef.value?.busy || planOcrOpen.value || leaving.value)
 const requiredBasics = computed(() => ['ready', 'executed'].includes(mode.value === 'edit' ? activePlan.value?.status || 'draft' : selectedStatus.value))
 const sortedPlans = computed(() => {
   const direction = createdAtOrder.value === 'ascending' ? 1 : -1
@@ -137,6 +140,11 @@ function rememberPlan(plan: Plan) {
   plans.value = [plan, ...plans.value.filter(p => p.id !== plan.id)]
   if (activePlan.value?.id === plan.id) activePlan.value = plan
 }
+function adjustmentSaved(saved: { id: string; updatedAt: string }) {
+  // Only refresh saved metadata. Never copy an adjustment response into the edit form.
+  plans.value = plans.value.map(plan => plan.id === saved.id ? { ...plan, updatedAt: saved.updatedAt } : plan)
+  if (activePlan.value?.id === saved.id) activePlan.value = { ...activePlan.value, updatedAt: saved.updatedAt }
+}
 async function updateStatus(plan: Plan, status: PlanStatus, reason?: string) {
   if (actionBusy.value || editing.value) return false
   changingStatusId.value = plan.id; statusError.value = ''; abandonError.value = ''
@@ -192,14 +200,14 @@ function prepareForm(plan?: Plan) {
   initialSnapshot.value = snapshot()
   void nextTick(() => formRef.value?.clearValidate())
 }
-function createPlan() {
-  if (actionBusy.value || abandonDialog.value) return
+async function createPlan() {
+  if (!await canLeave()) return
   statusError.value = ''
   activePlan.value = null; prepareForm(); mode.value = 'new'
   void nextTick(() => document.querySelector<HTMLInputElement>('#plan-symbol')?.focus())
 }
 async function viewPlan(plan: Pick<Plan, 'id'>) {
-  if (actionBusy.value || abandonDialog.value) return false
+  if (!await canLeave()) return false
   viewingPlan.value = true
   statusError.value = ''
   error.value = ''
@@ -207,14 +215,22 @@ async function viewPlan(plan: Pick<Plan, 'id'>) {
   catch (e) { error.value = (e as Error).message; return false }
   finally { viewingPlan.value = false }
 }
-function editPlan() { if (activePlan.value && !actionBusy.value && !abandonDialog.value) { statusError.value = ''; prepareForm(activePlan.value); mode.value = 'edit' } }
+async function editPlan() {
+  if (!activePlan.value || actionBusy.value || abandonDialog.value) return
+  // The adjustment component stays mounted for the same plan, preserving its draft.
+  if (adjustmentsRef.value && !await adjustmentsRef.value.canLeave({ preserveDraft: true })) return
+  statusError.value = ''; prepareForm(activePlan.value); mode.value = 'edit'
+}
 async function canLeave() {
   if (actionBusy.value || abandonDialog.value) return false
-  if (editing.value && snapshot() !== initialSnapshot.value) {
-    try { await ElMessageBox.confirm('当前修改尚未保存。离开后将丢弃这些修改。', '离开编辑', { confirmButtonText: '离开', cancelButtonText: '继续编辑', type: 'warning' }) }
-    catch { return false }
-  }
-  return true
+  leaving.value = true
+  try {
+    const planDirty = editing.value && snapshot() !== initialSnapshot.value
+    if (adjustmentsRef.value) return await adjustmentsRef.value.canLeave({ planDirty })
+    if (planDirty) await ElMessageBox.confirm('当前计划尚未保存。离开后将丢弃这些修改。', '离开编辑', { confirmButtonText: '离开', cancelButtonText: '继续编辑', type: 'warning' })
+    return true
+  } catch { return false }
+  finally { leaving.value = false }
 }
 async function backToList() {
   if (!await canLeave()) return false
@@ -223,8 +239,7 @@ async function backToList() {
   return true
 }
 async function openPlanById(id: string, edit = false) {
-  if (!await canLeave()) return
-  if (await viewPlan({ id }) && edit) editPlan()
+  if (await viewPlan({ id }) && edit) await editPlan()
 }
 function imageChanged(file: UploadFile) {
   if (!file.raw) return
@@ -245,7 +260,7 @@ function imagePreview(file: UploadFile) {
   previewIndex.value = Math.max(0, previewUrls.value.indexOf(file.url || '')); previewOpen.value = true
 }
 function pasteImages(event: ClipboardEvent) {
-  if (!editing.value || saving.value || previewOpen.value) return
+  if (!editing.value || actionBusy.value || previewOpen.value) return
   const images = Array.from(event.clipboardData?.items || []).filter(i => i.kind === 'file' && i.type.startsWith('image/')).map(i => i.getAsFile()).filter((f): f is File => !!f)
   if (!images.length) return
   event.preventDefault()
@@ -258,6 +273,7 @@ function pasteImages(event: ClipboardEvent) {
 }
 async function savePlan(status: 'draft' | 'ready' = 'draft') {
   if (actionBusy.value) return
+  if (adjustmentsRef.value && !await adjustmentsRef.value.canLeave({ preserveDraft: true })) return
   const isEditing = mode.value === 'edit'
   if (!isEditing) selectedStatus.value = status
   saving.value = true; error.value = ''
@@ -279,7 +295,8 @@ async function savePlan(status: 'draft' | 'ready' = 'draft') {
   finally { saving.value = false }
 }
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (editing.value && snapshot() !== initialSnapshot.value) { event.preventDefault(); event.returnValue = '' }
+  if (saving.value || changingStatusId.value || planOcrOpen.value || adjustmentsRef.value?.needsBeforeUnload
+    || (editing.value && snapshot() !== initialSnapshot.value)) { event.preventDefault(); event.returnValue = '' }
 }
 onMounted(() => { void loadPlans(); window.addEventListener('paste', pasteImages); window.addEventListener('beforeunload', beforeUnload) })
 onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', pasteImages); window.removeEventListener('beforeunload', beforeUnload) })
@@ -327,7 +344,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
 
       <ElCard v-else-if="editing" shadow="never" class="plan-editor-card">
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>{{ mode === 'new' ? '保存草稿可稍后补全' : '保存修改会保留当前状态' }}</span></div></template>
-        <ElForm ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="saving" scroll-to-error @submit.prevent="savePlan()">
+        <ElForm id="opening-plan-content" ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="planBusy || adjustmentsRef?.busy || leaving" scroll-to-error @submit.prevent.stop="savePlan()">
           <div class="plan-three-columns">
             <ElFormItem label="交易品种" prop="symbol"><SymbolSelect v-model="form.symbol" :disabled="saving" @pending-change="symbolPendingChanged"/></ElFormItem>
             <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
@@ -345,20 +362,13 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
           <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
           <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
           <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
-          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span><PriceOcr :disabled="saving" @apply="row => { form.entryPrice = row.entryPrice; form.stopLoss = row.stopLoss ?? undefined; form.takeProfit = row.takeProfit ?? undefined; formRef?.clearValidate(['entryPrice', 'stopLoss', 'takeProfit']) }"/></div>
+          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span><PriceOcr :disabled="planBusy || adjustmentsRef?.busy || leaving" target-label="原计划价位" @active-change="planOcrOpen = $event" @apply="row => { form.entryPrice = row.entryPrice; form.stopLoss = row.stopLoss ?? undefined; form.takeProfit = row.takeProfit ?? undefined; formRef?.clearValidate(['entryPrice', 'stopLoss', 'takeProfit']) }"/></div>
           <div class="plan-three-columns">
             <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
             <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="选填"/></ElFormItem>
             <ElFormItem label="止盈价" prop="takeProfit"><ElInputNumber v-model="form.takeProfit" :controls="false" placeholder="选填"/></ElFormItem>
           </div>
           <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
-          <div class="plan-form-footer">
-            <span>{{ mode === 'edit' && activePlan ? `保留${statusInfo(activePlan.status).label}状态；状态可在列表或详情中更改` : '待执行需填写品种、方向、周期和入场理由' }}</span>
-            <div>
-              <ElButton v-if="mode === 'edit'" type="primary" native-type="submit" :loading="saving" :disabled="saving"><Save :size="15"/>保存修改</ElButton>
-              <template v-else><ElButton :loading="saving && selectedStatus === 'draft'" :disabled="saving" @click="savePlan('draft')"><Save :size="15"/>保存草稿</ElButton><ElButton type="primary" :loading="saving && selectedStatus === 'ready'" :disabled="saving" @click="savePlan('ready')"><Check :size="15"/>标记待执行</ElButton></template>
-            </div>
-          </div>
         </ElForm>
       </ElCard>
 
@@ -380,8 +390,17 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
         <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
         <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
       </ElCard>
+      <!-- Keep one instance outside the plan form across view/edit/content saves. -->
+      <PlanAdjustments v-if="(mode === 'view' || mode === 'edit') && activePlan" :key="activePlan.id" ref="adjustmentsRef" :plan-id="activePlan.id" :disabled="planBusy || abandonDialog || planOcrOpen" @saved="adjustmentSaved"/>
+      <ElAlert v-if="mode === 'new'" title="请先保存计划，再按持仓记录止盈止损调整。" type="info" :closable="false" show-icon style="margin-top: 20px"/>
+      <div v-if="editing" class="plan-form-footer">
+        <span>{{ mode === 'edit' && activePlan ? `仅保存计划正文；保留${statusInfo(activePlan.status).label}状态和调整草稿` : '待执行需填写品种、方向、周期和入场理由' }}</span>
+        <div>
+          <ElButton v-if="mode === 'edit'" native-type="submit" form="opening-plan-content" type="primary" :loading="saving" :disabled="actionBusy"><Save :size="15"/>保存计划修改</ElButton>
+          <template v-else><ElButton native-type="submit" form="opening-plan-content" :loading="saving && selectedStatus === 'draft'" :disabled="actionBusy"><Save :size="15"/>保存草稿</ElButton><ElButton native-type="button" type="primary" :loading="saving && selectedStatus === 'ready'" :disabled="actionBusy" @click="savePlan('ready')"><Check :size="15"/>标记待执行</ElButton></template>
+        </div>
+      </div>
       <PlanReviewEntry v-if="mode === 'view' && activePlan" :key="activePlan.id" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px" @open="id => emit('openReview', id)"/>
-      <PlanAdjustments v-if="(mode === 'view' || mode === 'edit') && activePlan" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px"/>
       <ElDialog v-model="abandonDialog" title="标记已放弃" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">
