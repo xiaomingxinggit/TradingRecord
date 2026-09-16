@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ElButton, ElCard, ElDivider, ElIcon, ElLink, ElMenu, ElMenuItem, ElScrollbar, ElText } from 'element-plus'
-import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, BookOpenCheck, NotebookPen, ShieldCheck } from 'lucide-vue-next'
+import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, ShieldCheck } from 'lucide-vue-next'
 
-defineProps<{ exporting: boolean; active: 'plans' | 'reviews' | 'practice' }>()
-const emit = defineEmits<{ plans: []; reviews: []; practice: []; export: []; help: [] }>()
+defineProps<{ exporting: boolean }>()
+const emit = defineEmits<{ plans: []; export: []; help: [] }>()
 </script>
 
 <template>
@@ -12,7 +12,7 @@ const emit = defineEmits<{ plans: []; reviews: []; practice: []; export: []; hel
     <ElScrollbar class="navigation-scroll">
       <div class="navigation-content">
         <ElText tag="p" type="info" size="small" class="nav-label">工作空间</ElText>
-        <ElMenu :default-active="active" class="workspace-menu" @select="index => index === 'plans' ? emit('plans') : index === 'reviews' ? emit('reviews') : emit('practice')"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>开仓计划</span></ElMenuItem><ElMenuItem index="reviews"><ElIcon><BookOpenCheck/></ElIcon><span>交易复盘</span></ElMenuItem><ElMenuItem index="practice"><ElIcon><NotebookPen/></ElIcon><span>模拟练习</span></ElMenuItem></ElMenu>
+        <ElMenu default-active="plans" class="workspace-menu" @select="emit('plans')"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>开仓计划</span></ElMenuItem></ElMenu>
         <ElDivider/>
         <ElText tag="p" type="info" size="small" class="nav-label">数据管理</ElText>
         <ElButton text class="export-button" :loading="exporting" :disabled="exporting" @click="emit('export')"><ArrowDownToLine v-if="!exporting" :size="19"/><span>{{ exporting ? '正在导出…' : '导出数据' }}</span></ElButton>
@@ -20,7 +20,7 @@ const emit = defineEmits<{ plans: []; reviews: []; practice: []; export: []; hel
           <ElCard shadow="never" class="guidance-card">
             <ElIcon :size="23" color="var(--el-color-primary)"><ShieldCheck/></ElIcon>
             <h3>记录计划，沉淀思考</h3>
-            <ElText tag="p" type="info" size="small">留下每次入场前的判断，作为下一次决策的参考。</ElText>
+            <ElText tag="p" type="info" size="small">从开仓想法、持仓变化到交易复盘，在同一份记录中回看。</ElText>
             <ElButton type="primary" link @click="emit('help')">使用说明<ArrowRight :size="14"/></ElButton>
           </ElCard>
         </div>

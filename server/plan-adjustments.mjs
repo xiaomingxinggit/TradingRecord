@@ -13,67 +13,53 @@ const price = (value) => {
 };
 
 export function adjustmentJournal(plan) {
-  if (plan.adjustmentJournal === undefined) return { version: 1, groups: [], requests: [] };
+  if (plan.adjustmentJournal === undefined) return { version: 1, groups: [], requests: [], emotions: [] };
   const journal = plan.adjustmentJournal;
-  if (journal?.version !== 1 || !Array.isArray(journal.groups) || !Array.isArray(journal.requests)) {
+  if (journal?.version !== 1 || !Array.isArray(journal.groups) || !Array.isArray(journal.requests)
+    || (journal.emotions !== undefined && !Array.isArray(journal.emotions))) {
     fail(409, '调整历史版本无法读取，请升级应用后重试；已有记录未被修改。');
   }
-  return journal;
-}
-
-export function positionSnapshot(position) {
-  return { positionId: position.id, ticket: position.ticket, symbol: position.symbol, side: position.side,
-    entryPrice: position.openPrice, source: position.source, sourceFile: position.sourceFile, reportDate: position.reportDate };
+  return { ...journal, emotions: journal.emotions ?? [] };
 }
 
 // Called only inside the plan store's immediate write transaction. All identity
-// and source information comes from the saved journal / linked MT5 positions.
-export function updateAdjustmentJournal(plan, body, kind, linkedPositions, now) {
+// and historical source information comes from the saved journal.
+export function updateAdjustmentJournal(plan, body, kind, now) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, '请提交有效的调整内容。');
-  const allowed = kind === 'append' ? ['requestId', 'groupId', 'positionId', 'manualTicket', 'entryPrice', 'stopLoss', 'takeProfit', 'reason']
-    : kind === 'bind' ? ['requestId', 'groupId', 'positionId'] : [];
+  const allowed = kind === 'append' ? ['requestId', 'groupId', 'manualTicket', 'entryPrice', 'stopLoss', 'takeProfit', 'reason']
+    : kind === 'emotion' ? ['requestId', 'groupId', 'emotion', 'note'] : [];
   if (!allowed.length || Object.keys(body).some(key => !allowed.includes(key))) fail(400, '调整请求包含不支持的字段。');
   const requestId = text(body.requestId, '请求编号', 100, true);
   const groupId = text(body.groupId, '记录组', 200);
-  const positionId = text(body.positionId, '关联持仓', 200);
   const manualTicket = text(body.manualTicket, '手动持仓编号', 100);
   const values = kind === 'append' ? { entryPrice: price(body.entryPrice), stopLoss: price(body.stopLoss),
-    takeProfit: price(body.takeProfit), reason: text(body.reason, '调整原因', 2000) } : {};
-  const signature = createHash('sha256').update(JSON.stringify({ kind, groupId, positionId, manualTicket, ...values })).digest('hex');
+    takeProfit: price(body.takeProfit), reason: text(body.reason, '调整原因', 2000) }
+    : { emotion: text(body.emotion, '情绪', 20, true), note: text(body.note, '情绪备注', 2000) };
+  if (kind === 'emotion' && !['平静', '焦虑', '恐惧', '贪婪', '急躁', '其他'].includes(values.emotion)) fail(400, '请选择有效的情绪。');
+  // Keep the append signature shape so requests created before FLOW-01 can retry.
+  const signature = createHash('sha256').update(JSON.stringify({ kind, groupId, positionId: '', manualTicket, ...values })).digest('hex');
   const journal = adjustmentJournal(plan);
   const prior = journal.requests.find((request) => request.requestId === requestId);
   if (prior) {
     if (prior.signature !== signature) fail(409, '此请求编号已用于其他内容，请重新打开调整窗口。');
     return { journal, changed: false };
   }
-  const linked = (id) => {
-    const position = linkedPositions.find((item) => item.id === id);
-    if (!position) fail(409, '此 MT5 持仓当前未关联本计划，请重新选择。');
-    return position;
-  };
   let group = groupId ? journal.groups.find((item) => item.id === groupId) : null;
   if (groupId && !group) fail(404, '未找到持仓调整记录组。');
-  if (kind === 'bind') {
-    if (!group || group.origin !== 'manual' || group.sourceSnapshot || !positionId) fail(409, '请选择尚未绑定的手动记录组和当前关联持仓。');
-    if (journal.groups.some((item) => item.sourceSnapshot?.positionId === positionId)) fail(409, '该持仓已有独立调整链路，不能合并历史。');
-    group.sourceSnapshot = positionSnapshot(linked(positionId));
-    group.boundAt = now;
+  if (kind === 'emotion') {
+    journal.emotions.push({ id: randomUUID(), type: 'emotion', recordTime: now, groupId, ...values });
   } else {
-    if (group && (positionId || manualTicket)) fail(400, '追加时不能更换记录组来源。');
+    if (group && manualTicket) fail(400, '追加时不能更换记录组来源。');
     if (!group) {
-      if (Boolean(positionId) === Boolean(manualTicket)) fail(400, '请选择已关联持仓，或填写必填的手动持仓编号；不能同时指定两种来源。');
-      if (positionId && journal.groups.some((item) => item.sourceSnapshot?.positionId === positionId)) fail(409, '该持仓已有调整链路，请在现有记录组中追加。');
-      group = { id: positionId ? `mt5:${positionId}` : randomUUID(), origin: positionId ? 'mt5' : 'manual',
-        manualTicket, sourceSnapshot: positionId ? positionSnapshot(linked(positionId)) : null,
+      if (!manualTicket) fail(400, '请填写手动持仓编号，或选择已有记录组。');
+      group = { id: randomUUID(), origin: 'manual', manualTicket, sourceSnapshot: null,
         createdAt: now, boundAt: null, entries: [] };
       journal.groups.push(group);
     }
-    // Retain history after unlinking, but do not append to a position owned by a
-    // different plan (or no plan) based only on an old source snapshot.
-    if (group.sourceSnapshot) linked(group.sourceSnapshot.positionId);
-    group.entries.push({ id: randomUUID(), requestId, recordTime: now, ...values,
+    // Historical MT5 groups are now independent; retain every source snapshot.
+    group.entries.push({ id: randomUUID(), type: 'price', requestId, recordTime: now, ...values,
       sourceSnapshot: group.sourceSnapshot ?? null });
   }
-  journal.requests.push({ requestId, signature, groupId: group.id, kind, recordTime: now });
+  journal.requests.push({ requestId, signature, groupId: group?.id ?? '', kind, recordTime: now });
   return { journal, changed: true };
 }

@@ -21,8 +21,6 @@
   --border:var(--el-border-color-light);
   --app-page-bg:#f7f8fb;
   --app-shell-bg:#fff;
-  --app-profit-positive:#21896b;
-  --app-profit-negative:#cb5064;
   --app-status-shadow:0 4px 16px rgba(56,49,69,.10);
   color-scheme:light;
   font-family:var(--el-font-family);
@@ -96,8 +94,6 @@ html.dark {
   --el-color-info-light-7:#4f475b;
   --el-color-info-light-8:#433b4e;
   --el-color-info-light-9:#36303f;
-  --app-profit-positive:#6dceb0;
-  --app-profit-negative:#f18f9f;
   --app-status-shadow:0 6px 24px rgba(0,0,0,.4);
   --app-solid-primary:#7954bc;
   --app-brand-bg:var(--app-solid-primary);
@@ -129,15 +125,7 @@ html.dark .el-radio-button {
   --el-radio-button-checked-bg-color:var(--app-solid-primary);
   --el-radio-button-checked-border-color:var(--app-solid-primary);
 }
-html.dark .el-checkbox {
-  --el-checkbox-checked-bg-color:var(--app-solid-primary);
-  --el-checkbox-checked-input-border-color:var(--app-solid-primary);
-}
 html.dark .el-pagination.is-background .el-pager li.is-active:not(.is-disabled) { background:var(--app-solid-primary); }
-html.dark :is(.el-date-table,.el-month-table,.el-year-table) td:is(.current,.start-date,.end-date):not(.disabled) .el-date-table-cell__text {
-  color:var(--el-color-white);
-  background:var(--app-solid-primary);
-}
 html.dark .el-popper.is-dark,
 html.dark .el-popper.is-dark>.el-popper__arrow::before {
   background:var(--el-bg-color-overlay);
