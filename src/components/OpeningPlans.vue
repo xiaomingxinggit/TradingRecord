@@ -381,7 +381,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
         <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
       </ElCard>
       <PlanReviewEntry v-if="mode === 'view' && activePlan" :key="activePlan.id" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px" @open="id => emit('openReview', id)"/>
-      <PlanAdjustments v-if="mode === 'view' && activePlan" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px"/>
+      <PlanAdjustments v-if="(mode === 'view' || mode === 'edit') && activePlan" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px"/>
       <ElDialog v-model="abandonDialog" title="标记已放弃" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">
