@@ -38,6 +38,16 @@ function reviewMarkdown(execution) {
       下次改进: execution.review.improve, 上次完成时间UTC: execution.review.completedAt, 更新时间UTC: execution.review.updatedAt }), '');
   return lines;
 }
+function adjustmentMarkdown(journal) {
+  if (!journal?.groups?.length) return [];
+  const lines = ['### 持仓调整记录', '', '调整时间由服务端记录为 UTC；原计划价位保持不变。', ''];
+  for (const group of journal.groups) {
+    const source = group.sourceSnapshot ? `MT5 持仓 ${group.sourceSnapshot.ticket} · ${group.sourceSnapshot.symbol || '未填写品种'}` : `手动记录组 ${group.manualTicket || group.id}`;
+    lines.push(`#### ${source}`, '');
+    for (const entry of group.entries || []) lines.push(textBlock({记录时间UTC: entry.recordTime, 参考入场价: entry.entryPrice, 止损: entry.stopLoss, 止盈: entry.takeProfit, 原因: entry.reason}), '');
+  }
+  return lines;
+}
 
 // A fence longer than any user-supplied backtick run preserves Chinese,
 // multiline text and Markdown/HTML characters as literal content.
@@ -85,7 +95,7 @@ export async function exportPlansArchive(plans, practice = []) {
       markdown.push(`#### 截图 ${imageIndex + 1}`, '', '原始文件名：', '', textBlock(image.name), '',
         `![截图 ${imageIndex + 1}](${path})`, '');
     });
-    markdown.push(...reviewMarkdown(plan.executionReview), '---', '');
+    markdown.push(...adjustmentMarkdown(plan.adjustmentJournal), ...reviewMarkdown(plan.executionReview), '---', '');
   });
   zip.file('开仓计划.md', markdown.join('\n'), { compression: 'DEFLATE', compressionOptions: { level: 6 } });
   appendPracticeArchive(zip, practice, textBlock);

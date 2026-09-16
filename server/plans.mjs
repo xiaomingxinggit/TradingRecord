@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import { Router, json } from 'express';
 import multer from 'multer';
 import { exportPlansArchive } from './export.mjs';
+import { adjustmentJournal, positionSnapshot, updateAdjustmentJournal } from './plan-adjustments.mjs';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_IMAGES = 4;
@@ -187,6 +188,29 @@ export function createPlanStore(db, reviewSnapshot = () => null, practiceSnapsho
     get(id) {
       return hydrate(findPlan.get(id));
     },
+    adjustments(id) {
+      const row = findPlan.get(id);
+      if (!row) throw publicError(404, '未找到这份开仓计划。');
+      return { journal: adjustmentJournal(JSON.parse(row.payload)),
+        positions: (reviewSnapshot(id)?.positions ?? []).map(positionSnapshot) };
+    },
+    writeAdjustment(id, body, kind) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const row = findPlan.get(id);
+        if (!row) throw publicError(404, '请先保存计划，再记录持仓调整。');
+        const previous = JSON.parse(row.payload);
+        const now = new Date().toISOString();
+        const { journal, changed } = updateAdjustmentJournal(previous, body, kind, reviewSnapshot(id)?.positions ?? [], now);
+        if (changed) updateStatus.run(JSON.stringify({ ...previous, adjustmentJournal: journal }), now, id);
+        const plan = hydrate(findPlan.get(id));
+        db.exec('COMMIT');
+        return { plan, journal, changed };
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
     getImage(planId, imageId) {
       return readImage.get(planId, imageId) ?? null;
     },
@@ -326,6 +350,9 @@ export function createPlansRouter(store) {
     res.send(Buffer.from(image.content));
   });
   router.post('/', readUpload, save);
+  router.get('/:id/adjustments', (req, res) => res.json(store.adjustments(req.params.id)));
+  router.post('/:id/adjustments', json({ limit: '16kb' }), (req, res) => res.json(store.writeAdjustment(req.params.id, req.body, 'append')));
+  router.post('/:id/adjustments/bind', json({ limit: '16kb' }), (req, res) => res.json(store.writeAdjustment(req.params.id, req.body, 'bind')));
   router.put('/:id', readUpload, save);
   router.patch('/:id/status', json({ limit: '16kb' }), (req, res) => res.json(store.changeStatus(req.params.id, req.body)));
   return router;

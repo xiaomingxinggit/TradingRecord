@@ -11,6 +11,8 @@ import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus
 import PlanStatusMenu from './PlanStatusMenu.vue'
 import SymbolSelect from './SymbolSelect.vue'
 import PlanReviewEntry from './PlanReviewEntry.vue'
+import PriceOcr from './PriceOcr.vue'
+import PlanAdjustments from './PlanAdjustments.vue'
 import { statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
 
@@ -343,7 +345,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
           <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
           <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
           <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
-          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span></div>
+          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span><PriceOcr :disabled="saving" @apply="row => { form.entryPrice = row.entryPrice; form.stopLoss = row.stopLoss ?? undefined; form.takeProfit = row.takeProfit ?? undefined; formRef?.clearValidate(['entryPrice', 'stopLoss', 'takeProfit']) }"/></div>
           <div class="plan-three-columns">
             <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
             <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="选填"/></ElFormItem>
@@ -379,6 +381,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
         <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
       </ElCard>
       <PlanReviewEntry v-if="mode === 'view' && activePlan" :key="activePlan.id" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px" @open="id => emit('openReview', id)"/>
+      <PlanAdjustments v-if="mode === 'view' && activePlan" :plan-id="activePlan.id" :disabled="actionBusy || abandonDialog" style="margin-top: 20px"/>
       <ElDialog v-model="abandonDialog" title="标记已放弃" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">

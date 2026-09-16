@@ -5,6 +5,7 @@ import { createStore } from './store.mjs';
 import { createPlansRouter } from './plans.mjs';
 import { createReviewsRouter } from './review-routes.mjs';
 import { createPracticeRouter } from './practice.mjs';
+import { mountPriceOcr } from './price-ocr.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicError = (status, message) => Object.assign(new Error(message), { status });
@@ -27,6 +28,7 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     }
     next();
   });
+  mountPriceOcr(app);
   app.use('/api/plans', createPlansRouter(app.locals.store.plans));
   app.use('/api/reviews', createReviewsRouter(app.locals.store.reviews));
   app.use('/api/practice', createPracticeRouter(app.locals.store.practice));
