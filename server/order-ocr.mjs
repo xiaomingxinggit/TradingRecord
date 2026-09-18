@@ -33,11 +33,27 @@ const LABELS = {
   pendingTime: '挂单时间', openTime: '开仓时间', closeTime: '平仓时间',
 };
 
+const emptyReading = (confidence = 0) => ({ text: '', confidence, hasInk: false, inkFraction: 0 });
+
+function safeRect(left, top, rectWidth, rectHeight, imageWidth, imageHeight) {
+  const values = [left, top, rectWidth, rectHeight, imageWidth, imageHeight];
+  if (!values.every(Number.isFinite) || imageWidth < 1 || imageHeight < 1 || rectWidth <= 0 || rectHeight <= 0
+    || left >= imageWidth || top >= imageHeight || left + rectWidth <= 0 || top + rectHeight <= 0) return null;
+  const x = Math.max(0, Math.min(imageWidth - 1, Math.floor(left)));
+  const y = Math.max(0, Math.min(imageHeight - 1, Math.floor(top)));
+  const right = Math.max(x + 1, Math.min(imageWidth, Math.ceil(left + rectWidth)));
+  const bottom = Math.max(y + 1, Math.min(imageHeight, Math.ceil(top + rectHeight)));
+  if (right <= x || bottom <= y) return null;
+  return { left: x, top: y, width: right - x, height: bottom - y };
+}
+
 function cropBounds(columns, width) {
   return Object.fromEntries(Object.entries(columns).map(([key, [from, to]]) => {
     // Keep table rules/icons out of OCR without clipping the right-aligned text.
-    const left = Math.max(2, Math.round(from * width) + 2);
-    return [key, { left, width: Math.max(1, Math.round(to * width) - left - 2) }];
+    const proposedLeft = Math.round(from * width) + 2;
+    const proposedRight = Math.round(to * width) - 2;
+    const rect = safeRect(proposedLeft, 0, proposedRight - proposedLeft, 1, width, 1);
+    return [key, rect ? { left: rect.left, width: rect.width } : { left: 0, width: 0 }];
   }));
 }
 
@@ -49,15 +65,18 @@ function sharedCells(pixels, width, height) {
   // Search only close to each expected separator, not arbitrary text strokes.
   // Look across a few pixels so proportionally scaled rules can be wider than 1px.
   for (const edge of new Set(Object.values(SHARED_COLUMNS).flat().filter(x => x !== SHARED_COLUMNS.symbol[0]))) {
-    const expected = Math.round(edge * scale);
+    const expected = Math.max(0, Math.min(width, Math.round(edge * scale)));
+    if (expected === 0 || expected === width) { rules.set(edge, { left: expected, right: expected }); continue; }
     let best = null;
     const scores = new Map();
-    for (let x = expected - radius; x <= expected + radius; x++) {
+    const searchLeft = Math.max(1, expected - radius), searchRight = Math.min(width - 2, expected + radius);
+    for (let x = searchLeft; x <= searchRight; x++) {
       let score = 0;
       for (let y = 0; y < height; y++) {
         const p = pixels[y * width + x];
-        if (p >= 100 && p < 245
-          && Math.max(pixels[y * width + x - shoulder], pixels[y * width + x + shoulder]) > p + 10) score++;
+        const before = pixels[y * width + Math.max(0, x - shoulder)];
+        const after = pixels[y * width + Math.min(width - 1, x + shoulder)];
+        if (p >= 100 && p < 245 && Math.max(before, after) > p + 10) score++;
       }
       scores.set(x, score);
       if (score >= height * 0.7 && (!best || score > best.score
@@ -71,11 +90,12 @@ function sharedCells(pixels, width, height) {
     } else rules.set(edge, { left: expected, right: expected });
   }
   return Object.fromEntries(Object.entries(SHARED_COLUMNS).map(([key, [from, to]]) => {
-    const left = rules.get(from)?.right ?? Math.round(from * scale);
-    const right = rules.get(to).left;
+    const proposedLeft = rules.get(from)?.right ?? Math.round(from * scale);
+    const proposedRight = rules.get(to)?.left ?? Math.round(to * scale);
     // Exclude only the detected rule itself. No fixed right inset: the last
     // digit of a right-aligned value may sit immediately beside the separator.
-    return [key, { left, width: Math.max(1, right - left) }];
+    const rect = safeRect(proposedLeft, 0, proposedRight - proposedLeft, 1, width, 1);
+    return [key, rect ? { left: rect.left, width: rect.width } : { left: 0, width: 0 }];
   }));
 }
 
@@ -305,28 +325,39 @@ async function recognizeMode(pixels, width, height, mode, worker) {
   if (mode === 'pending') warnings.push('挂单按品种、订单号、时间、类型、交易量、目标价、止损、止盈的独立列识别；交易量“已下单 / 已成交”格式只取左侧。当前价与 placed 状态不写入订单字段。');
   if (mode === 'open') warnings.push('持仓按独立列识别订单号与开仓时间，支持无表头完整宽度数据行；低置信度字段留空，请手工核对。开仓时间保留截图时钟，不转换时区；不识别当前市价与浮动盈亏。');
   const rows = [];
-  let skippedSummary = 0, structureTotal = 0, structureMatched = 0, structureMissing = 0;
+  let skippedSummary = 0, invalidCells = 0, structureTotal = 0, structureMatched = 0, structureMissing = 0;
   // Bound work even for noisy images; do not silently truncate suspected rows.
   const candidateLimit = MAX_ROWS + 2;
   if (bands.length > candidateLimit) warnings.push(`检测到 ${bands.length} 个文字带，本次只处理前 ${candidateLimit} 个；请分开截图，剩余内容未识别。`);
   for (const [index, [top, bottom]] of bands.slice(0, candidateLimit).entries()) {
     const readings = {};
+    const rowRect = safeRect(0, top, width, bottom - top, width, height);
+    if (!rowRect) { invalidCells += Object.keys(cells).length; continue; }
     for (const [key, cell] of Object.entries(cells)) {
-      const { left, width: cellWidth } = mode !== 'closed'
-        ? sharedValueCell(pixels, width, top, bottom, key, cell) : cell;
+      const adjusted = mode !== 'closed'
+        ? sharedValueCell(pixels, width, rowRect.top, rowRect.top + rowRect.height, key, cell) : cell;
+      const cellRect = safeRect(adjusted.left, rowRect.top, adjusted.width, rowRect.height, width, height);
+      if (!cellRect) { readings[key] = emptyReading(); invalidCells++; continue; }
+      const { left, width: cellWidth } = cellRect;
       let minInkX = cellWidth, maxInkX = -1, ink = 0;
-      for (let y = top; y < bottom; y++) for (let x = 0; x < cellWidth; x++) {
+      for (let y = cellRect.top; y < cellRect.top + cellRect.height; y++) for (let x = 0; x < cellWidth; x++) {
         if (pixels[y * width + left + x] < 150) { ink++; minInkX = Math.min(minInkX, x); maxInkX = Math.max(maxInkX, x); }
       }
-      if (ink < 3) { readings[key] = { text: '', confidence: 100, hasInk: false, inkFraction: 0 }; continue; }
-      const y = Math.max(0, top - 3), h = Math.min(height, bottom + 3) - y;
-      const scale = Math.min(6, Math.max(4, Math.ceil(64 / h)));
-      const crop = await sharp(pixels, { raw: { width, height, channels: 1 } })
-        .extract({ left, top: y, width: cellWidth, height: h })
-        .resize(cellWidth * scale, h * scale, { kernel: 'lanczos3' }).normalize().sharpen({ sigma: 0.8 })
-        .extend({ top: 12, bottom: 12, left: 16, right: 16, background: '#fff' }).png().toBuffer();
-      const { data } = await worker.recognize(crop);
-      readings[key] = { text: data.text.trim(), confidence: data.confidence, hasInk: true, inkFraction: (maxInkX - minInkX + 1) / cellWidth };
+      if (ink < 3) { readings[key] = emptyReading(100); continue; }
+      const cropRect = safeRect(left, cellRect.top - 3, cellWidth, cellRect.height + 6, width, height);
+      if (!cropRect) { readings[key] = emptyReading(); invalidCells++; continue; }
+      const scale = Math.min(6, Math.max(4, Math.ceil(64 / cropRect.height)));
+      try {
+        const crop = await sharp(pixels, { raw: { width, height, channels: 1 } })
+          .extract(cropRect)
+          .resize(cropRect.width * scale, cropRect.height * scale, { kernel: 'lanczos3' }).normalize().sharpen({ sigma: 0.8 })
+          .extend({ top: 12, bottom: 12, left: 16, right: 16, background: '#fff' }).png().toBuffer();
+        const { data } = await worker.recognize(crop);
+        readings[key] = { text: data.text.trim(), confidence: data.confidence, hasInk: true,
+          inkFraction: (maxInkX - minInkX + 1) / cellWidth };
+      } catch {
+        readings[key] = emptyReading(); invalidCells++;
+      }
     }
     const excluded = nonOrderRow(readings, mode, index);
     if (excluded === 'header') { warnings.push('已排除表头行。'); continue; }
@@ -337,6 +368,7 @@ async function recognizeMode(pixels, width, height, mode, worker) {
     rows.push(draftRow(readings, mode, rows.length + 1));
   }
   if (skippedSummary) warnings.push(`已排除 ${skippedSummary} 行表头、账户汇总或非订单内容。`);
+  if (invalidCells) warnings.push(`有 ${invalidCells} 个单元格无法安全裁剪或识别，已留空并等待人工核对。`);
   const required = mode === 'pending'
     ? ['ticket', 'symbol', 'side', 'volume', 'pendingPrice']
     : mode === 'open'

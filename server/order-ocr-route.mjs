@@ -25,7 +25,10 @@ export function mountOrderOcr(app) {
         if (!req.file) throw publicError(400, '请选择一张订单截图。');
         const [image] = validateImages([req.file]);
         res.json(await recognizeOrders(image.buffer));
-      } catch (problem) { next(problem); }
+      } catch (problem) {
+        if (problem?.status) return next(problem);
+        next(publicError(422, '订单截图识别失败，请确认图片为清晰的完整宽度 MT5 单行截图后重试。'));
+      }
     });
   });
 }
