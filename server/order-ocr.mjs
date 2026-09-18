@@ -5,6 +5,7 @@ import english from '@tesseract.js-data/eng';
 
 const fail = (message, status = 422) => Object.assign(new Error(message), { status });
 const MODES = ['pending', 'open', 'closed'];
+const MODE_LABELS = { pending: '挂单', open: '持仓中', closed: '已平仓' };
 const MAX_ROWS = 20;
 // Proportions refer to the full-width, light MT5 table layouts supplied for
 // this feature. These are separate layouts, not an arbitrary column detector.
@@ -13,41 +14,24 @@ const CLOSED_COLUMNS = {
   orderType: [0.2325, 0.2905], volume: [0.2905, 0.3873], openPrice: [0.3873, 0.4832],
   reportedSL: [0.4832, 0.5796], reportedTP: [0.5796, 0.6767],
   closeTime: [0.6767, 0.7454], closePrice: [0.7454, 0.8413], reportedProfit: [0.8413, 0.9502],
+  changePercent: [0.9502, 0.998],
 };
-const LIVE_COLUMNS = {
-  symbol: [0.009, 0.1295], ticket: [0.13, 0.29], orderType: [0.30, 0.387],
-  volume: [0.40, 0.487], entryPrice: [0.50, 0.587],
-  reportedSL: [0.60, 0.680], reportedTP: [0.70, 0.780],
-};
-// Positions has its own ticket AND report-clock columns. Coordinates describe
-// the full table, including the two trailing columns that we never recognize.
-const OPEN_REFERENCE_WIDTH = 2533;
-const OPEN_COLUMNS = {
-  symbol: [24, 328], ticket: [328, 556], openTime: [556, 731],
-  orderType: [731, 984], volume: [984, 1237], openPrice: [1237, 1490],
+// Pending orders and open positions share this full-width grid. The last two
+// columns are recognized only as structural evidence and never saved as a
+// current price, floating profit, or placed status.
+const SHARED_REFERENCE_WIDTH = 2533;
+const SHARED_COLUMNS = {
+  symbol: [24, 328], ticket: [328, 556], eventTime: [556, 731],
+  orderType: [731, 984], volume: [984, 1237], entryPrice: [1237, 1490],
   reportedSL: [1490, 1743], reportedTP: [1743, 1996],
+  currentPrice: [1996, 2249], tail: [2249, 2533],
 };
 const LABELS = {
   ticket: '订单号', symbol: '品种', orderType: '交易类型', volume: '手数',
   pendingPrice: '挂单目标价', openPrice: '开仓价', closePrice: '平仓价',
   reportedSL: '止损', reportedTP: '止盈', reportedProfit: '截图盈利',
-  openTime: '开仓时间', closeTime: '平仓时间',
+  pendingTime: '挂单时间', openTime: '开仓时间', closeTime: '平仓时间',
 };
-
-function liveColumns(pixels, width, height) {
-  // Same left-gutter correction as the existing price recognizer.
-  let separator = Math.round(width * 0.1295), best = 0;
-  for (let x = Math.floor(width * 0.12); x < width * 0.15; x++) {
-    let score = 0;
-    for (let y = 0; y < height; y++) {
-      const p = pixels[y * width + x];
-      if (p > 140 && p < 225 && pixels[y * width + x - 1] > p + 10 && pixels[y * width + x + 1] > p + 10) score++;
-    }
-    if (score > best) { best = score; separator = x; }
-  }
-  const offset = best > height * 0.5 ? Math.max(0, (separator / width - 0.1295) / 0.8705) : 0;
-  return Object.fromEntries(Object.entries(LIVE_COLUMNS).map(([key, bounds]) => [key, bounds.map(x => offset + x * (1 - offset))]));
-}
 
 function cropBounds(columns, width) {
   return Object.fromEntries(Object.entries(columns).map(([key, [from, to]]) => {
@@ -57,14 +41,14 @@ function cropBounds(columns, width) {
   }));
 }
 
-function openCells(pixels, width, height) {
-  const scale = width / OPEN_REFERENCE_WIDTH;
+function sharedCells(pixels, width, height) {
+  const scale = width / SHARED_REFERENCE_WIDTH;
   const rules = new Map();
   const radius = Math.max(2, Math.round(8 * scale));
   const shoulder = Math.max(2, Math.ceil(3 * scale));
   // Search only close to each expected separator, not arbitrary text strokes.
   // Look across a few pixels so proportionally scaled rules can be wider than 1px.
-  for (const edge of new Set(Object.values(OPEN_COLUMNS).flat().filter(x => x !== OPEN_COLUMNS.symbol[0]))) {
+  for (const edge of new Set(Object.values(SHARED_COLUMNS).flat().filter(x => x !== SHARED_COLUMNS.symbol[0]))) {
     const expected = Math.round(edge * scale);
     let best = null;
     const scores = new Map();
@@ -86,7 +70,7 @@ function openCells(pixels, width, height) {
       rules.set(edge, { left, right });
     } else rules.set(edge, { left: expected, right: expected });
   }
-  return Object.fromEntries(Object.entries(OPEN_COLUMNS).map(([key, [from, to]]) => {
+  return Object.fromEntries(Object.entries(SHARED_COLUMNS).map(([key, [from, to]]) => {
     const left = rules.get(from)?.right ?? Math.round(from * scale);
     const right = rules.get(to).left;
     // Exclude only the detected rule itself. No fixed right inset: the last
@@ -95,9 +79,9 @@ function openCells(pixels, width, height) {
   }));
 }
 
-function openValueCell(pixels, width, top, bottom, key, cell) {
+function sharedValueCell(pixels, width, top, bottom, key, cell) {
   if (key !== 'reportedSL' && key !== 'reportedTP') return cell;
-  const scale = width / OPEN_REFERENCE_WIDTH;
+  const scale = width / SHARED_REFERENCE_WIDTH;
   const right = cell.left + cell.width;
   const slotLeft = Math.max(cell.left, right - Math.ceil(22 * scale));
   // The optional gray close control lives in the far-right slot of SL/TP.
@@ -153,7 +137,10 @@ function findBands(pixels, width, height, cells) {
     }
     if (active) { if (start < 0) start = y; lastInk = y; }
     if (!active && start >= 0 && y - lastInk > 2) {
-      if (lastInk - start >= 3) bands.push([start, lastInk + 1]);
+      // Two pixels are enough for very thin anti-aliased text in a 25px row.
+      // Column edges are excluded above, so horizontal/vertical table rules do
+      // not become rows by themselves.
+      if (lastInk - start >= 1) bands.push([start, lastInk + 1]);
       start = -1;
     }
   }
@@ -174,6 +161,7 @@ function reportTime(value) {
 
 function numeric(value) {
   // Thousands separators are accepted only when grouping is unambiguous.
+  value = value.replace(/\s+/g, ' ').trim();
   const plain = /^[+-]?\d+(?:\.\d+)?$/;
   const grouped = /^[+-]?\d{1,3}(?:[ ,]\d{3})+(?:\.\d+)?$/;
   if (!plain.test(value) && !grouped.test(value)) return null;
@@ -186,16 +174,28 @@ function headerRow(readings, mode, index) {
   const text = Object.values(readings).map(cell => cell.text).join(' ').toLowerCase();
   const labels = text.match(/\b(?:ticket|symbol|volume|profit|price|type|time|order)\b/g) || [];
   if (labels.length >= 3 && !/\b(?:buy|sell|balance)\b/.test(text)) return true;
-  if (mode === 'open') return !/\d/.test(text) && !/\b(?:buy|sell|balance)\b/.test(text)
-    && readings.openTime?.inkFraction > 0 && readings.openTime.inkFraction < 0.4
-    && Object.values(readings).filter(cell => cell.hasInk).length >= 6;
-  // English OCR cannot read the supplied Chinese header. Its two short time
-  // labels, absence of any digits and many populated cells identify that row.
-  // A damaged/unknown data row otherwise survives as an editable draft.
-  return mode === 'closed' && !/\d/.test(text) && !/\b(?:buy|sell|balance)\b/.test(text)
-    && readings.openTime?.inkFraction > 0 && readings.openTime.inkFraction < 0.4
-    && readings.closeTime?.inkFraction > 0 && readings.closeTime.inkFraction < 0.4
-    && Object.values(readings).filter(cell => cell.hasInk).length >= 6;
+  const type = readings.orderType?.text ?? '';
+  const ticket = readings.ticket?.text.trim() ?? '';
+  const timeKeys = mode === 'closed' ? ['openTime', 'closeTime'] : ['eventTime'];
+  const hasTime = timeKeys.some(key => reportTime(readings[key]?.text ?? ''));
+  // English OCR cannot reliably read the Chinese labels. A header is the
+  // first populated band without any of the three strongest data signals.
+  return !/^\d+$/.test(ticket) && !pendingType(type) && !marketType(type) && !hasTime
+    && Object.values(readings).filter(cell => cell.hasInk).length >= 5;
+}
+
+function nonOrderRow(readings, mode, index) {
+  if (headerRow(readings, mode, index)) return 'header';
+  const text = Object.values(readings).map(cell => cell.text).join(' ').toLowerCase();
+  if (/\b(?:balance|equity|margin|free margin|account)\b/.test(text)) return 'summary';
+  const type = readings.orderType?.text ?? '';
+  const ticket = readings.ticket?.text.trim() ?? '';
+  const timeKeys = mode === 'closed' ? ['openTime', 'closeTime'] : ['eventTime'];
+  const timeCount = timeKeys.filter(key => reportTime(readings[key]?.text ?? '')).length;
+  // Account totals and empty bands can contain amounts, but not a ticket,
+  // buy/sell type, or complete report-clock value.
+  if (!/^\d+$/.test(ticket) && !pendingType(type) && !marketType(type) && !timeCount) return 'summary';
+  return '';
 }
 
 function draftRow(readings, mode, rowIndex) {
@@ -209,84 +209,134 @@ function draftRow(readings, mode, rowIndex) {
   const warn = key => row.warnings.push(`${LABELS[key]}缺失或无法可靠识别，请对照原图填写。`);
   const ticket = read('ticket');
   // Tickets must never pass through Number or character substitutions.
-  if (ticket.confidence >= 85 && /^\d+$/.test(ticket.text)) row.ticket = ticket.text;
+  if (ticket.confidence >= 72 && /^\d+$/.test(ticket.text)) row.ticket = ticket.text;
   else warn('ticket');
   const symbol = read('symbol');
-  if (symbol.confidence >= 70 && /^[A-Za-z][A-Za-z0-9._#-]{0,39}$/.test(symbol.text)) row.symbol = symbol.text;
+  if (symbol.confidence >= 60 && /^[A-Za-z][A-Za-z0-9._#-]{0,39}$/.test(symbol.text)) row.symbol = symbol.text;
   else warn('symbol');
   const direction = read('orderType');
-  const orderType = direction.text.toLowerCase().replace(/\s+/g, ' ');
-  if (direction.confidence >= 75 && /^(buy|sell)( limit| stop| stop limit)?$/.test(orderType)) {
-    const pending = orderType !== 'buy' && orderType !== 'sell';
-    if (pending === (mode === 'pending')) {
+  const orderType = normalizedType(direction.text);
+  if (direction.confidence >= 60 && (pendingType(orderType) || marketType(orderType))) {
+    const isPending = pendingType(orderType);
+    if (isPending === (mode === 'pending')) {
       row.side = orderType.startsWith('buy') ? 'buy' : 'sell';
       row.orderType = orderType;
     } else row.warnings.push('图中交易类型与所选模式不一致；请核对模式，并补填方向和交易类型。');
   } else warn('orderType');
-  const readNumber = (key, source = key) => {
-    const cell = read(source), value = numeric(cell.text);
+  const readNumber = (key, source = key, parser = numeric) => {
+    const cell = read(source), value = parser(cell.text);
     const optional = key === 'reportedSL' || key === 'reportedTP';
     if (optional && !cell.hasInk) return;
-    if (cell.confidence >= 70 && value !== null && (key === 'reportedProfit' || value > 0)) row[key] = value;
-    else if (!(optional && cell.confidence >= 70 && value === 0)) warn(key);
+    if (cell.confidence >= 60 && value !== null && (key === 'reportedProfit' || value > 0)) row[key] = value;
+    else if (!(optional && cell.confidence >= 60 && value === 0)) warn(key);
   };
-  readNumber('volume');
+  readNumber('volume', 'volume', volumeNumeric);
   readNumber('reportedSL');
   readNumber('reportedTP');
   if (mode === 'closed') {
     readNumber('openPrice'); readNumber('closePrice'); readNumber('reportedProfit');
     for (const key of ['openTime', 'closeTime']) {
       const cell = read(key), value = reportTime(cell.text);
-      if (cell.confidence >= 75 && value) row[key] = value;
+      if (cell.confidence >= 60 && value) row[key] = value;
       else warn(key);
     }
   } else if (mode === 'open') {
-    readNumber('openPrice');
-    const cell = read('openTime'), value = reportTime(cell.text);
-    if (cell.confidence >= 75 && value) row.openTime = value;
+    readNumber('openPrice', 'entryPrice');
+    const cell = read('eventTime'), value = reportTime(cell.text);
+    if (cell.confidence >= 60 && value) row.openTime = value;
     else warn('openTime');
     // The current price/floating-profit columns are deliberately never read.
-  } else readNumber('pendingPrice', 'entryPrice');
+  } else {
+    readNumber('pendingPrice', 'entryPrice');
+    const cell = read('eventTime'), value = reportTime(cell.text);
+    if (cell.confidence >= 60 && value) row.pendingTime = value;
+    else if (cell.hasInk) warn('pendingTime');
+  }
   if (!row.side) row.warnings.push('此行未可靠确认是交易行，请核对；表头、资金或汇总行不要保存。');
   return row;
 }
 
+function structuralEvidence(readings, mode) {
+  const reliable = (key, threshold = 50) => (readings[key]?.confidence ?? 0) >= threshold;
+  const typeText = readings.orderType?.text ?? '';
+  const ticket = reliable('ticket') && /^\d+$/.test(readings.ticket.text.trim());
+  const symbol = reliable('symbol') && /^[A-Za-z][A-Za-z0-9._#-]{0,39}$/.test(readings.symbol.text.trim());
+  const volume = reliable('volume') && volumeNumeric(readings.volume.text) !== null;
+  const isPending = reliable('orderType') && pendingType(typeText);
+  const isMarket = reliable('orderType') && marketType(typeText);
+  const eventTime = reliable('eventTime') && !!reportTime(readings.eventTime?.text ?? '');
+  const openTime = reliable('openTime') && !!reportTime(readings.openTime?.text ?? '');
+  const closeTime = reliable('closeTime') && !!reportTime(readings.closeTime?.text ?? '');
+  const entryPrice = reliable('entryPrice') && numeric(readings.entryPrice?.text ?? '') !== null;
+  const openPrice = reliable('openPrice') && numeric(readings.openPrice?.text ?? '') !== null;
+  const closePrice = reliable('closePrice') && numeric(readings.closePrice?.text ?? '') !== null;
+  const profit = reliable('reportedProfit') && numeric(readings.reportedProfit?.text ?? '') !== null;
+  const percent = reliable('changePercent') && percentNumeric(readings.changePercent?.text ?? '') !== null;
+  const tailText = readings.tail?.text.trim() ?? '';
+  const placed = reliable('tail') && /\bplaced\b/i.test(tailText);
+  const floating = reliable('tail') && numeric(tailText) !== null;
+  let score = (ticket ? 14 : 0) + (symbol ? 8 : 0) + (volume ? 8 : 0);
+  let expected;
+  if (mode === 'pending') {
+    score += (isPending ? 32 : 0) + (placed ? 26 : 0) + (eventTime ? 6 : 0) + (entryPrice ? 6 : 0);
+    if (isMarket) score -= 22;
+    if (floating && !placed) score -= 8;
+    expected = [ticket, symbol, volume, isPending, placed || eventTime, entryPrice];
+  } else if (mode === 'open') {
+    score += (isMarket ? 26 : 0) + (eventTime ? 22 : 0) + (entryPrice ? 10 : 0) + (floating ? 12 : 0);
+    if (isPending) score -= 36;
+    if (placed) score -= 36;
+    expected = [ticket, symbol, volume, isMarket, eventTime, entryPrice, floating];
+  } else {
+    score += (isMarket ? 14 : 0) + (openTime && closeTime ? 34 : openTime || closeTime ? 5 : 0)
+      + (openPrice ? 8 : 0) + (closePrice ? 8 : 0) + (profit ? 8 : 0) + (percent ? 6 : 0);
+    if (isPending) score -= 32;
+    if (!(openTime && closeTime)) score -= 18;
+    expected = [ticket, symbol, volume, isMarket, openTime, closeTime, openPrice, closePrice, profit, percent];
+  }
+  return { score: Math.max(0, Math.min(100, score)), matched: expected.filter(Boolean).length, missing: expected.filter(value => !value).length };
+}
+
 async function recognizeMode(pixels, width, height, mode, worker) {
-  const cells = mode === 'open' ? openCells(pixels, width, height)
-    : cropBounds(mode === 'closed' ? CLOSED_COLUMNS : liveColumns(pixels, width, height), width);
+  const cells = mode === 'closed' ? cropBounds(CLOSED_COLUMNS, width) : sharedCells(pixels, width, height);
   const bands = findBands(pixels, width, height, cells);
   const warnings = [];
   if (!bands.length) return { mode, rows: [], warnings, score: 0, matchedFields: 0, missingFields: 0 };
-  if (mode === 'pending') warnings.push('挂单沿用既有价位布局；票号区域若含时间或其他文字将留空，开仓时间需手填。不识别当前市价与浮动盈亏。');
+  if (mode === 'pending') warnings.push('挂单按品种、订单号、时间、类型、交易量、目标价、止损、止盈的独立列识别；交易量“已下单 / 已成交”格式只取左侧。当前价与 placed 状态不写入订单字段。');
   if (mode === 'open') warnings.push('持仓按独立列识别订单号与开仓时间，支持无表头完整宽度数据行；低置信度字段留空，请手工核对。开仓时间保留截图时钟，不转换时区；不识别当前市价与浮动盈亏。');
   const rows = [];
-  let skippedBalance = 0;
+  let skippedSummary = 0, structureTotal = 0, structureMatched = 0, structureMissing = 0;
   // Bound work even for noisy images; do not silently truncate suspected rows.
   const candidateLimit = MAX_ROWS + 2;
   if (bands.length > candidateLimit) warnings.push(`检测到 ${bands.length} 个文字带，本次只处理前 ${candidateLimit} 个；请分开截图，剩余内容未识别。`);
   for (const [index, [top, bottom]] of bands.slice(0, candidateLimit).entries()) {
     const readings = {};
     for (const [key, cell] of Object.entries(cells)) {
-      const { left, width: cellWidth } = mode === 'open'
-        ? openValueCell(pixels, width, top, bottom, key, cell) : cell;
+      const { left, width: cellWidth } = mode !== 'closed'
+        ? sharedValueCell(pixels, width, top, bottom, key, cell) : cell;
       let minInkX = cellWidth, maxInkX = -1, ink = 0;
       for (let y = top; y < bottom; y++) for (let x = 0; x < cellWidth; x++) {
         if (pixels[y * width + left + x] < 150) { ink++; minInkX = Math.min(minInkX, x); maxInkX = Math.max(maxInkX, x); }
       }
       if (ink < 3) { readings[key] = { text: '', confidence: 100, hasInk: false, inkFraction: 0 }; continue; }
-      const y = Math.max(0, top - 2), h = Math.min(height, bottom + 2) - y;
+      const y = Math.max(0, top - 3), h = Math.min(height, bottom + 3) - y;
+      const scale = Math.min(6, Math.max(4, Math.ceil(64 / h)));
       const crop = await sharp(pixels, { raw: { width, height, channels: 1 } })
-        .extract({ left, top: y, width: cellWidth, height: h }).resize(cellWidth * 4, h * 4)
-        .extend({ top: 16, bottom: 16, left: 16, right: 16, background: '#fff' }).png().toBuffer();
+        .extract({ left, top: y, width: cellWidth, height: h })
+        .resize(cellWidth * scale, h * scale, { kernel: 'lanczos3' }).normalize().sharpen({ sigma: 0.8 })
+        .extend({ top: 12, bottom: 12, left: 16, right: 16, background: '#fff' }).png().toBuffer();
       const { data } = await worker.recognize(crop);
       readings[key] = { text: data.text.trim(), confidence: data.confidence, hasInk: true, inkFraction: (maxInkX - minInkX + 1) / cellWidth };
     }
-    if (/^balance$/i.test(readings.orderType.text.trim())) { skippedBalance++; continue; }
-    if (headerRow(readings, mode, index)) { warnings.push('已排除表头行。'); continue; }
+    const excluded = nonOrderRow(readings, mode, index);
+    if (excluded === 'header') { warnings.push('已排除表头行。'); continue; }
+    if (excluded) { skippedSummary++; continue; }
     if (rows.length >= MAX_ROWS) { warnings.push('一次最多返回 20 行，后续内容未识别，请分开截图。'); break; }
+    const evidence = structuralEvidence(readings, mode);
+    structureTotal += evidence.score; structureMatched += evidence.matched; structureMissing += evidence.missing;
     rows.push(draftRow(readings, mode, rows.length + 1));
   }
-  if (skippedBalance) warnings.push(`已排除 ${skippedBalance} 行 balance 资金记录。`);
+  if (skippedSummary) warnings.push(`已排除 ${skippedSummary} 行表头、账户汇总或非订单内容。`);
   const required = mode === 'pending'
     ? ['ticket', 'symbol', 'side', 'volume', 'pendingPrice']
     : mode === 'open'
@@ -297,12 +347,29 @@ async function recognizeMode(pixels, width, height, mode, worker) {
     if (row[key] !== null && row[key] !== '') matchedFields++;
     else missingFields++;
   }
-  // Complete layout-specific fields carry most weight; warnings and missing
-  // fields keep a visually similar but structurally wrong layout from winning.
+  // Type, time count, ticket and the unsaved trailing status/profit signals
+  // dominate; optional SL/TP completeness only makes a small adjustment.
   const completeness = matchedFields + missingFields ? matchedFields / (matchedFields + missingFields) : 0;
-  const score = Math.round((rows.length ? 25 : 0) + completeness * 70 - Math.min(20, missingFields * 2));
-  return { mode, rows, warnings, score, matchedFields, missingFields };
+  const structural = rows.length ? structureTotal / rows.length : 0;
+  const score = Math.round(Math.max(0, Math.min(100, structural * 0.88 + completeness * 12)));
+  return { mode, rows, warnings, score, matchedFields: structureMatched, missingFields: structureMissing };
 }
+
+function volumeNumeric(value) {
+  const left = value.split('/')[0]?.trim() ?? '';
+  return numeric(left);
+}
+
+function percentNumeric(value) {
+  return numeric(value.trim().replace(/\s*%$/, ''));
+}
+
+function normalizedType(value) {
+  return value.toLowerCase().replace(/[^a-z]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
+const pendingType = value => /^(?:buy|sell) (?:limit|stop|stop limit)$/.test(normalizedType(value));
+const marketType = value => /^(?:buy|sell)$/.test(normalizedType(value));
 
 export async function recognizeOrders(buffer) {
   let pixels, info;
@@ -323,7 +390,7 @@ export async function recognizeOrders(buffer) {
     const ambiguous = selected.score < 65 || selected.score - runnerUp.score < 12;
     const warnings = [
       '系统已自动比较挂单、持仓中和已平仓三套固定浅色 MT5 布局。识别结果仅为草稿，保存前请逐项对照原图。',
-      `布局判断：${selected.mode} 得分 ${selected.score}，其次 ${runnerUp.mode} 得分 ${runnerUp.score}；依据为表格结构及关键字段完整度。`,
+      `布局判断：${MODE_LABELS[selected.mode]}得分 ${selected.score}，其次${MODE_LABELS[runnerUp.mode]}得分 ${runnerUp.score}；依据为类型、时间数量、订单号、交易量及末列结构信号。`,
       ...selected.warnings,
     ];
     if (ambiguous) warnings.push('无法可靠唯一判断截图状态，已返回得分最高的草稿；请人工选择正确状态并修正字段后再保存。');

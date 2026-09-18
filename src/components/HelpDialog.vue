@@ -24,7 +24,7 @@ const sections = ref(['plans'])
       </ElCollapseItem>
       <ElCollapseItem title="关联订单" name="orders">
         <div class="page-stack">
-          <ElText>在已保存计划内选择或粘贴一张不超过 5 MB 的 PNG、JPEG 或 WEBP 订单截图。系统在本机自动比较挂单、持仓中和已平仓三套固定浅色完整宽度 MT5 布局；原图不会保存。</ElText>
+          <ElText>在已保存计划内选择或粘贴一张不超过 5 MB 的 PNG、JPEG 或 WEBP 订单截图。建议截取完整宽度的一行浅色 MT5 记录；已平仓截图可带表头，表头和账户汇总会跳过。系统在本机自动比较挂单、持仓中和已平仓三套固定布局；原图不会保存。</ElText>
           <ElText>识别结果只是草稿。请逐行核对订单号、状态、品种、方向、手数、时间、价格、止损止盈和截图盈利；状态判断不明确时可人工修改。未知字段留空，报告时间不转换时区。</ElText>
           <ElText>同一订单号不会重复创建，也不会从其他计划自动转移。列表中的状态标签可切换挂单、持仓中和已平仓，切换只改变状态。未保存草稿离开前会提示。</ElText>
         </div>

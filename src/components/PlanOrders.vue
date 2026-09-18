@@ -164,7 +164,7 @@ defineExpose({ confirmDiscard })
     <ElCard shadow="never" class="order-import-card">
       <template #header><div class="plan-card-heading"><div><h2>导入订单</h2><span>本机识别 · 原图不保存</span></div><div class="order-actions"><ElButton :disabled="locked" :loading="recognizing" @click="fileInput?.click()"><ImagePlus :size="15"/>选择截图</ElButton><ElButton :disabled="locked" @click="addManual"><Plus :size="15"/>手动添加一行</ElButton></div></div></template>
       <input ref="fileInput" type="file" hidden accept="image/png,image/jpeg,image/webp" @change="chooseImage"/>
-      <p class="order-help">选择或粘贴一张完整宽度的浅色 MT5 挂单、持仓中或已平仓截图。系统自动判断布局，支持单行和多行；每行都要对照原图核对后单独保存。</p>
+      <p class="order-help">选择或粘贴一张完整宽度的浅色 MT5 挂单、持仓中或已平仓截图，建议每次截取一行。系统自动判断布局；识别草稿必须对照原图核对后保存。</p>
       <ElAlert v-if="error" :title="error" type="error" show-icon :closable="false"/>
       <ElImage v-if="preview" :src="preview" :preview-src-list="[preview]" preview-teleported fit="contain" class="order-preview"/>
       <ElAlert v-for="(warning, index) in warnings" :key="index" :title="warning" type="warning" :closable="false" class="order-warning"/>
