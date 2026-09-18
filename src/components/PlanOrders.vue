@@ -177,18 +177,18 @@ defineExpose({ confirmDiscard })
             <ElFormItem label="状态" required><ElSelect v-model="current.fields.status"><ElOption v-for="(label, value) in orderStatusLabels" :key="value" :value="value" :label="label"/></ElSelect></ElFormItem>
             <ElFormItem label="品种" required><ElInput v-model="current.fields.symbol" maxlength="40"/></ElFormItem>
             <ElFormItem label="方向" required><ElSelect v-model="current.fields.side"><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
-            <ElFormItem label="手数"><ElInputNumber v-model="current.fields.volume" :controls="false" placeholder="未知留空"/></ElFormItem>
+            <ElFormItem label="手数"><ElInputNumber v-model="current.fields.volume" :controls="false" :step="0.01" :step-strictly="false" placeholder="未知留空"/></ElFormItem>
           </div>
           <details><summary>核对时间、价格、止损止盈与盈利</summary><div class="order-fields">
             <ElFormItem label="挂单时间"><ElInput v-model="current.fields.pendingTime" placeholder="YYYY.MM.DD HH:mm:ss"/></ElFormItem>
-            <ElFormItem label="挂单目标价"><ElInputNumber v-model="current.fields.pendingPrice" :controls="false" placeholder="未知留空"/></ElFormItem>
+            <ElFormItem label="挂单目标价"><ElInputNumber v-model="current.fields.pendingPrice" :controls="false" :step="0.00001" :step-strictly="false" placeholder="未知留空"/></ElFormItem>
             <ElFormItem label="开仓时间"><ElInput v-model="current.fields.openTime" placeholder="YYYY.MM.DD HH:mm:ss"/></ElFormItem>
-            <ElFormItem label="开仓价"><ElInputNumber v-model="current.fields.openPrice" :controls="false" placeholder="未知留空"/></ElFormItem>
+            <ElFormItem label="开仓价"><ElInputNumber v-model="current.fields.openPrice" :controls="false" :step="0.00001" :step-strictly="false" placeholder="未知留空"/></ElFormItem>
             <ElFormItem label="平仓时间"><ElInput v-model="current.fields.closeTime" placeholder="YYYY.MM.DD HH:mm:ss"/></ElFormItem>
-            <ElFormItem label="平仓价"><ElInputNumber v-model="current.fields.closePrice" :controls="false" placeholder="未知留空"/></ElFormItem>
-            <ElFormItem label="截图止损"><ElInputNumber v-model="current.fields.reportedSL" :controls="false" placeholder="未知留空"/></ElFormItem>
-            <ElFormItem label="截图止盈"><ElInputNumber v-model="current.fields.reportedTP" :controls="false" placeholder="未知留空"/></ElFormItem>
-            <ElFormItem label="截图盈利"><ElInputNumber v-model="current.fields.reportedProfit" :controls="false" placeholder="未知留空，可为负数或 0"/></ElFormItem>
+            <ElFormItem label="平仓价"><ElInputNumber v-model="current.fields.closePrice" :controls="false" :step="0.00001" :step-strictly="false" placeholder="未知留空"/></ElFormItem>
+            <ElFormItem label="截图止损"><ElInputNumber v-model="current.fields.reportedSL" :controls="false" :step="0.00001" :step-strictly="false" placeholder="未知留空"/></ElFormItem>
+            <ElFormItem label="截图止盈"><ElInputNumber v-model="current.fields.reportedTP" :controls="false" :step="0.00001" :step-strictly="false" placeholder="未知留空"/></ElFormItem>
+            <ElFormItem label="截图盈利"><ElInputNumber v-model="current.fields.reportedProfit" :controls="false" :step="0.01" :step-strictly="false" placeholder="未知留空，可为负数或 0"/></ElFormItem>
           </div></details>
           <p class="order-help">时间保留 MT5 报告时钟，不转换时区。未知字段留空；切换草稿状态不会清空已识别字段。</p>
           <details v-if="current.raw"><summary>查看本行识别原文</summary><pre class="order-raw">{{ JSON.stringify(current.raw, null, 2) }}</pre></details>
