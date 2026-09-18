@@ -9,6 +9,7 @@ import {
 import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance, UploadRawFile, UploadUserFile } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import PlanStatusMenu from './PlanStatusMenu.vue'
+import PlanOrders from './PlanOrders.vue'
 import SymbolSelect from './SymbolSelect.vue'
 import { statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
@@ -34,6 +35,7 @@ const plans = ref<Plan[]>([]), loading = ref(true), error = ref(''), imageError 
 const mode = ref<'list' | 'view' | 'new' | 'edit'>('list'), activePlan = ref<Plan | null>(null)
 const formRef = ref<FormInstance>(), uploadRef = ref<UploadInstance>()
 const sectionTab = ref('plan')
+const orderPanelRef = ref<InstanceType<typeof PlanOrders>>(), orderDirty = ref(false), orderBusy = ref(false)
 const leaving = ref(false)
 const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('descending')
 const files = ref<PlanUpload[]>([]), saving = ref(false), pageNumber = ref(1)
@@ -53,7 +55,7 @@ const maxImageCount = 4, maxImageSize = 5 * 1024 * 1024
 const form = ref<PlanForm>(emptyForm())
 const editing = computed(() => mode.value === 'new' || mode.value === 'edit')
 const planBusy = computed(() => saving.value || !!changingStatusId.value || viewingPlan.value)
-const actionBusy = computed(() => planBusy.value || leaving.value)
+const actionBusy = computed(() => planBusy.value || orderBusy.value || leaving.value)
 const planDirty = computed(() => editing.value && snapshot() !== initialSnapshot.value)
 const requiredBasics = computed(() => ['ready', 'executed'].includes((mode.value === 'edit' ? activePlan.value?.status : selectedStatus.value) || 'draft'))
 const sortedPlans = computed(() => {
@@ -211,13 +213,24 @@ async function viewPlan(plan: Pick<Plan, 'id'>) {
 }
 async function editPlan() {
   if (!activePlan.value || actionBusy.value || abandonDialog.value) return
+  if (!await confirmOrderLeave()) return
   statusError.value = ''; prepareForm(activePlan.value); sectionTab.value = 'plan'; mode.value = 'edit'
 }
-function canSwitchSection() { return !actionBusy.value && !abandonDialog.value && !previewOpen.value }
+function orderStateChanged(state: { dirty: boolean; busy: boolean }) { orderDirty.value = state.dirty; orderBusy.value = state.busy }
+async function confirmOrderLeave() {
+  if (!orderDirty.value) return true
+  return await orderPanelRef.value?.confirmDiscard() ?? true
+}
+async function canSwitchSection(next: string | number, previous: string | number) {
+  if (actionBusy.value || abandonDialog.value || previewOpen.value) return false
+  if (previous === 'orders' && next !== 'orders') return confirmOrderLeave()
+  return true
+}
 async function canLeave() {
   if (actionBusy.value || abandonDialog.value) return false
   leaving.value = true
   try {
+    if (!await confirmOrderLeave()) return false
     if (planDirty.value) await ElMessageBox.confirm('交易计划尚未保存。离开后将丢弃这些输入，已保存的内容仍会保留。', '离开当前计划', { confirmButtonText: '离开', cancelButtonText: '继续编辑', type: 'warning', closeOnClickModal: false })
     return true
   } catch { return false }
@@ -282,7 +295,7 @@ async function savePlan(status: 'draft' | 'ready' = 'draft') {
   finally { saving.value = false }
 }
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (actionBusy.value || planDirty.value || (abandonDialog.value && abandonReason.value !== (abandonPlan.value?.abandonReason || ''))) { event.preventDefault(); event.returnValue = '' }
+  if (actionBusy.value || planDirty.value || orderDirty.value || (abandonDialog.value && abandonReason.value !== (abandonPlan.value?.abandonReason || ''))) { event.preventDefault(); event.returnValue = '' }
 }
 onMounted(() => { void loadPlans(); window.addEventListener('paste', pasteImages); window.addEventListener('beforeunload', beforeUnload) })
 onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', pasteImages); window.removeEventListener('beforeunload', beforeUnload) })
@@ -393,6 +406,7 @@ defineExpose({ showList: backToList })
         </div>
       </div>
       </template>
+      <PlanOrders v-if="mode !== 'list' && mode !== 'new' && sectionTab === 'orders' && activePlan" ref="orderPanelRef" :plan-id="activePlan.id" :active="sectionTab === 'orders'" :disabled="planBusy || leaving || abandonDialog" @state-change="orderStateChanged"/>
       <ElDialog v-model="abandonDialog" title="取消计划" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">

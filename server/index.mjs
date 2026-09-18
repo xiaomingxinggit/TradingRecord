@@ -3,6 +3,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createPlansRouter } from './plans.mjs';
+import { createPlanOrdersRouter } from './plan-orders.mjs';
+import { mountOrderOcr } from './order-ocr-route.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicError = (status, message) => Object.assign(new Error(message), { status });
@@ -25,6 +27,8 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     }
     next();
   });
+  mountOrderOcr(app);
+  app.use('/api/plans/:planId/orders', createPlanOrdersRouter(app.locals.store.orders));
   app.use('/api/plans', createPlansRouter(app.locals.store.plans));
   app.use('/api', (_req, _res, next) => next(publicError(404, '接口不存在。')));
 

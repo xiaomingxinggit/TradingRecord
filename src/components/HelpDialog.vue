@@ -19,12 +19,19 @@ const sections = ref(['plans'])
         <div class="page-stack">
           <ElText>状态包括草稿、待触发、已执行、未触发、取消、失效，在列表或详情中手动选择。待触发和已执行需填写品种、方向、周期和入场理由；编辑正文会保留当前状态。</ElText>
           <ElText>取消原因可留空，切回其他状态后保留上次原因。列表可点击创建时间切换最新 / 最早优先，编辑不改变创建时间。</ElText>
-          <ElText>新建计划时直接显示表单，不显示页签。保存后的查看和编辑页面包含交易计划、关联订单、计划事件、计划复盘四个页签，后三项目前为空白。切换页签保留计划草稿，离开前提示未保存内容，保存期间暂时不能切换。刷新或关闭页面由浏览器提示。</ElText>
+          <ElText>新建计划时直接显示表单，不显示页签。保存后的查看和编辑页面包含交易计划、关联订单、计划事件、计划复盘四个页签。切换页签保留计划草稿，离开前提示未保存内容，保存期间暂时不能切换。刷新或关闭页面由浏览器提示。</ElText>
+        </div>
+      </ElCollapseItem>
+      <ElCollapseItem title="关联订单" name="orders">
+        <div class="page-stack">
+          <ElText>在已保存计划内选择或粘贴一张不超过 5 MB 的 PNG、JPEG 或 WEBP 订单截图。系统在本机自动比较挂单、持仓中和已平仓三套固定浅色完整宽度 MT5 布局；原图不会保存。</ElText>
+          <ElText>识别结果只是草稿。请逐行核对订单号、状态、品种、方向、手数、时间、价格、止损止盈和截图盈利；状态判断不明确时可人工修改。未知字段留空，报告时间不转换时区。</ElText>
+          <ElText>同一订单号不会重复创建，也不会从其他计划自动转移。列表中的状态标签可切换挂单、持仓中和已平仓，切换只改变状态。未保存草稿离开前会提示。</ElText>
         </div>
       </ElCollapseItem>
       <ElCollapseItem title="导出与备份" name="export">
         <div class="page-stack">
-          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划的字段、状态和截图，不包含未保存输入。完整解压后可离线阅读。</ElText>
+          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图及关联订单，不包含未保存的计划输入或订单草稿。完整解压后可离线阅读。</ElText>
           <ElAlert title="ZIP 是阅读资料，不能恢复数据库。升级或回退前，先停止所有使用数据库的服务，再完整备份 data 文件夹（含可能存在的 WAL / SHM）。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>

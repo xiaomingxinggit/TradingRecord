@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 const statusLabels = { draft: '草稿', ready: '待触发', executed: '已执行', abandoned: '取消', untriggered: '未触发', expired: '失效' };
 const sideLabels = { buy: '做多', sell: '做空' };
 const marketLabels = { uptrend: '上涨趋势', downtrend: '下跌趋势', range: '震荡', uncertain: '不确定' };
+const orderStatusLabels = { pending: '挂单', open: '持仓中', closed: '已平仓' };
 const imageExtensions = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp']]);
 const fields = [
   ['id', '唯一标识'], ['createdAt', '创建时间（UTC）'], ['updatedAt', '更新时间（UTC）'],
@@ -11,6 +12,15 @@ const fields = [
   ['timeframe', '分析周期'], ['marketState', '市场状态', marketLabels],
   ['keyStructure', '关键结构'], ['reason', '入场理由'], ['invalidationCondition', '出场理由'],
   ['entryPrice', '计划入场价'], ['stopLoss', '止损价'], ['takeProfit', '止盈价'],
+];
+const orderFields = [
+  ['id', '订单内部标识'], ['ticket', '订单号'], ['planId', '关联计划标识'], ['status', '状态', orderStatusLabels],
+  ['symbol', '品种'], ['side', '方向', sideLabels], ['volume', '手数'],
+  ['pendingTime', '挂单时间（报告时钟）'], ['pendingPrice', '挂单目标价'],
+  ['openTime', '开仓时间（报告时钟）'], ['openPrice', '开仓价'],
+  ['closeTime', '平仓时间（报告时钟）'], ['closePrice', '平仓价'],
+  ['reportedSL', '截图止损'], ['reportedTP', '截图止盈'], ['reportedProfit', '截图盈利'],
+  ['createdAt', '创建时间（UTC）'], ['updatedAt', '更新时间（UTC）'],
 ];
 
 // A fence longer than any user-supplied backtick run preserves Chinese,
@@ -58,6 +68,16 @@ export async function exportPlansArchive(plans) {
       markdown.push(`##### 截图 ${imageIndex + 1}`, '', '原始文件名：', '', textBlock(image.name), '',
         `![截图 ${imageIndex + 1}](${path})`, '');
     });
+    markdown.push('### 关联订单', '');
+    if (!plan.orders?.length) markdown.push('未关联订单。', '');
+    for (const [orderIndex, order] of (plan.orders ?? []).entries()) {
+      markdown.push(`#### 订单 ${orderIndex + 1}`, '');
+      for (const [key, label, labels] of orderFields) {
+        const value = order[key];
+        const display = labels && Object.hasOwn(labels, value) ? `${labels[value]}（${value}）` : value;
+        markdown.push(`##### ${label}`, '', textBlock(display), '');
+      }
+    }
     markdown.push('---', '');
   });
   zip.file('交易计划.md', markdown.join('\n'), { compression: 'DEFLATE', compressionOptions: { level: 6 } });
