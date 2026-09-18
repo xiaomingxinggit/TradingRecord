@@ -4,6 +4,8 @@ const statusLabels = { draft: '草稿', ready: '待触发', executed: '已执行
 const sideLabels = { buy: '做多', sell: '做空' };
 const marketLabels = { uptrend: '上涨趋势', downtrend: '下跌趋势', range: '震荡', uncertain: '不确定' };
 const orderStatusLabels = { pending: '挂单', open: '持仓中', closed: '已平仓' };
+const eventTypeLabels = { order_created: '创建并关联订单', order_status_changed: '订单状态变更', order_fields_changed: '订单字段更新' };
+const eventFieldLabels = { status: '订单状态', volume: '手数', reportedSL: '止损', reportedTP: '止盈' };
 const imageExtensions = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp']]);
 const fields = [
   ['id', '唯一标识'], ['createdAt', '创建时间（UTC）'], ['updatedAt', '更新时间（UTC）'],
@@ -30,6 +32,12 @@ function textBlock(value) {
   const runs = text.match(/`+/g) ?? [];
   const fence = '`'.repeat(runs.reduce((length, run) => Math.max(length, run.length + 1), 3));
   return `${fence}text\n${text}\n${fence}`;
+}
+
+function eventValue(field, value) {
+  if (value === null || value === undefined || value === '') return '未记录';
+  if (field === 'status') return orderStatusLabels[value] ?? value;
+  return String(value);
 }
 
 export async function exportPlansArchive(plans) {
@@ -76,6 +84,17 @@ export async function exportPlansArchive(plans) {
         const value = order[key];
         const display = labels && Object.hasOwn(labels, value) ? `${labels[value]}（${value}）` : value;
         markdown.push(`##### ${label}`, '', textBlock(display), '');
+      }
+    }
+    markdown.push('### 计划事件', '');
+    if (!plan.events?.length) markdown.push('无。', '');
+    for (const [eventIndex, event] of (plan.events ?? []).entries()) {
+      markdown.push(`#### 事件 ${eventIndex + 1}`, '', '##### 发生时间（UTC）', '', textBlock(event.createdAt), '',
+        '##### 订单号', '', textBlock(event.detail?.ticket), '', '##### 事件类型', '',
+        textBlock(eventTypeLabels[event.type] ?? event.type), '');
+      for (const change of event.detail?.changes ?? []) {
+        markdown.push(`##### ${eventFieldLabels[change.field] ?? change.field}`, '',
+          textBlock(`${eventValue(change.field, change.from)} → ${eventValue(change.field, change.to)}`), '');
       }
     }
     markdown.push('---', '');

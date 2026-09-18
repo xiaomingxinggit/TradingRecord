@@ -10,6 +10,7 @@ import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import PlanStatusMenu from './PlanStatusMenu.vue'
 import PlanOrders from './PlanOrders.vue'
+import PlanEvents from './PlanEvents.vue'
 import SymbolSelect from './SymbolSelect.vue'
 import { statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
@@ -407,6 +408,7 @@ defineExpose({ showList: backToList })
       </div>
       </template>
       <PlanOrders v-if="mode !== 'list' && mode !== 'new' && sectionTab === 'orders' && activePlan" ref="orderPanelRef" :plan-id="activePlan.id" :active="sectionTab === 'orders'" :disabled="planBusy || leaving || abandonDialog" @state-change="orderStateChanged"/>
+      <PlanEvents v-if="mode !== 'list' && mode !== 'new' && sectionTab === 'events' && activePlan" :plan-id="activePlan.id"/>
       <ElDialog v-model="abandonDialog" title="取消计划" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">

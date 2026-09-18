@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createPlanStore } from './plans.mjs';
 import { createOrderStore } from './orders.mjs';
+import { createPlanEventStore } from './plan-events.mjs';
 
 export function createStore(dataDir) {
   mkdirSync(dataDir, { recursive: true });
@@ -10,10 +11,11 @@ export function createStore(dataDir) {
   const db = new DatabaseSync(join(dataDir, 'trading.sqlite'));
   try {
     db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-    let orders;
-    const plans = createPlanStore(db, () => orders);
-    orders = createOrderStore(db);
-    return { plans, orders, close: () => db.close() };
+    let orders, events;
+    const plans = createPlanStore(db, () => orders, () => events);
+    orders = createOrderStore(db, () => events);
+    events = createPlanEventStore(db);
+    return { plans, orders, events, close: () => db.close() };
   } catch (error) {
     db.close();
     throw error;

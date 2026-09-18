@@ -26,12 +26,19 @@ const sections = ref(['plans'])
         <div class="page-stack">
           <ElText>在已保存计划内选择或粘贴一张不超过 5 MB 的 PNG、JPEG 或 WEBP 订单截图。建议截取完整宽度的一行浅色 MT5 记录；已平仓截图可带表头，表头和账户汇总会跳过。系统在本机自动比较挂单、持仓中和已平仓三套固定布局；原图不会保存。</ElText>
           <ElText>识别结果只是草稿。请逐行核对订单号、状态、品种、方向、手数、时间、价格、止损止盈和截图盈利；状态判断不明确时可人工修改。未知字段留空，报告时间不转换时区。</ElText>
-          <ElText>同一订单号不会重复创建，也不会从其他计划自动转移。列表中的状态标签可切换挂单、持仓中和已平仓，切换只改变状态。未保存草稿离开前会提示。</ElText>
+          <ElText>同一订单号不会重复创建，也不会从其他计划自动转移。列表显示开仓价、止损和止盈；状态标签可切换挂单、持仓中和已平仓，切换只改变状态。</ElText>
+          <ElText>“对比订单截图”只比较当前计划同一订单号的手数、止损和止盈。未知字段不清空旧值，确认后才保存；对比期间的选择或粘贴图片不会进入新订单导入。未保存的导入或对比草稿离开前会提示。</ElText>
+        </div>
+      </ElCollapseItem>
+      <ElCollapseItem title="计划事件" name="events">
+        <div class="page-stack">
+          <ElText>计划事件只读记录订单创建并关联、订单状态变化，以及通过截图对比确认的手数、止损、止盈变化。查看不会产生事件，已有订单不会补写虚构历史。</ElText>
+          <ElText>事件显示发生时间、订单号和实际变化，不能编辑或删除；订单写入失败时不会单独留下事件。</ElText>
         </div>
       </ElCollapseItem>
       <ElCollapseItem title="导出与备份" name="export">
         <div class="page-stack">
-          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图及关联订单，不包含未保存的计划输入或订单草稿。完整解压后可离线阅读。</ElText>
+          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图、关联订单及人类可读的计划事件，不包含未保存草稿或 OCR 元数据。完整解压后可离线阅读。</ElText>
           <ElAlert title="ZIP 是阅读资料，不能恢复数据库。升级或回退前，先停止所有使用数据库的服务，再完整备份 data 文件夹（含可能存在的 WAL / SHM）。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>

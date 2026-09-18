@@ -81,7 +81,7 @@ function validatePayload(body, editing, status) {
   return { plan, keepImageIds };
 }
 
-export function createPlanStore(db, getOrderStore = () => null) {
+export function createPlanStore(db, getOrderStore = () => null, getEventStore = () => null) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS plans (
       id TEXT PRIMARY KEY,
@@ -144,8 +144,10 @@ export function createPlanStore(db, getOrderStore = () => null) {
       db.exec('BEGIN');
       try {
         const orderStore = getOrderStore();
+        const eventStore = getEventStore();
         const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id),
-          orders: orderStore ? orderStore.exportForPlan(row.id) : [] }));
+          orders: orderStore ? orderStore.exportForPlan(row.id) : [],
+          events: eventStore ? eventStore.exportForPlan(row.id) : [] }));
         db.exec('COMMIT');
         return { plans };
       } catch (error) {

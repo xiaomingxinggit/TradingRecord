@@ -67,7 +67,34 @@ function validateOrder(body) {
   return result;
 }
 
-export function createOrderStore(db) {
+function validateComparedFields(body) {
+  const fields = ['volume', 'reportedSL', 'reportedTP'];
+  const allowed = new Set(['expectedUpdatedAt', ...fields]);
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || Object.keys(body).some(key => !allowed.has(key))) throw publicError(400, '截图对比更新包含不支持的字段。');
+  const expectedUpdatedAt = text(body.expectedUpdatedAt, '订单更新时间', 40, true);
+  const supplied = fields.filter(key => Object.hasOwn(body, key));
+  if (!supplied.length) throw publicError(400, '请至少提交一项已识别的手数、止损或止盈。');
+  const values = Object.fromEntries(supplied.map(key => {
+    if (body[key] === null || body[key] === '') throw publicError(400, '未知的截图字段不能用于清空订单。');
+    return [key, number(body[key], { volume: '手数', reportedSL: '止损', reportedTP: '止盈' }[key])];
+  }));
+  return { expectedUpdatedAt, supplied, values };
+}
+
+function sameNumber(left, right) {
+  if (left === right) return true;
+  if (left === null || left === undefined || right === null || right === undefined) return false;
+  return Math.abs(left - right) <= Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right)) * 8;
+}
+
+function nextTimestamp(previous) {
+  const now = new Date();
+  if (previous && now.toISOString() <= previous) return new Date(Date.parse(previous) + 1).toISOString();
+  return now.toISOString();
+}
+
+export function createOrderStore(db, getEventStore = () => null) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tr_orders_v2 (
       id TEXT PRIMARY KEY,
@@ -101,6 +128,8 @@ export function createOrderStore(db) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const attach = db.prepare('UPDATE tr_orders_v2 SET plan_id = ?, updated_at = ? WHERE id = ? AND plan_id IS NULL');
   const updateStatus = db.prepare('UPDATE tr_orders_v2 SET status = ?, updated_at = ? WHERE id = ?');
+  const updateCompared = db.prepare(`UPDATE tr_orders_v2
+    SET volume = ?, reported_sl = ?, reported_tp = ?, updated_at = ? WHERE id = ?`);
   const hydrate = row => row ? ({
     id: row.id, ticket: row.ticket, planId: row.plan_id, status: row.status, symbol: row.symbol, side: row.side,
     volume: row.volume, pendingTime: row.pending_time, pendingPrice: row.pending_price,
@@ -122,6 +151,11 @@ export function createOrderStore(db) {
     try { const result = action(); db.exec('COMMIT'); return result; }
     catch (error) { db.exec('ROLLBACK'); throw error; }
   };
+  const appendEvent = (planId, orderId, type, detail, createdAt) => {
+    const store = getEventStore();
+    if (!store) throw new Error('计划事件存储尚未初始化。');
+    return store.append(planId, orderId, type, detail, createdAt);
+  };
 
   return {
     listForPlan(planId) {
@@ -136,15 +170,17 @@ export function createOrderStore(db) {
         if (existing) {
           if (existing.plan_id === planId) return { order: hydrate(existing), created: false };
           if (existing.plan_id) throw publicError(409, `订单号 ${input.ticket} 已属于其他计划，未自动转移。`);
-          const now = new Date().toISOString();
+          const now = nextTimestamp(existing.updated_at);
           attach.run(planId, now, existing.id);
-          return { order: hydrate(byId.get(existing.id)), created: false };
+          const event = appendEvent(planId, existing.id, 'order_created', { ticket: existing.ticket }, now);
+          return { order: hydrate(byId.get(existing.id)), created: false, event };
         }
         const id = randomUUID(), now = new Date().toISOString();
         insert.run(id, input.ticket, planId, input.status, input.symbol, input.side, input.volume,
           input.pendingTime, input.pendingPrice, input.openTime, input.openPrice, input.closeTime, input.closePrice,
           input.reportedSL, input.reportedTP, input.reportedProfit, now, now);
-        return { order: hydrate(byId.get(id)), created: true };
+        const event = appendEvent(planId, id, 'order_created', { ticket: input.ticket }, now);
+        return { order: hydrate(byId.get(id)), created: true, event };
       });
     },
     changeStatus(planId, orderId, body) {
@@ -155,8 +191,30 @@ export function createOrderStore(db) {
       return transaction(() => {
         const row = requireOwned(planId, orderId);
         if (row.status === body.status) return { order: hydrate(row), changed: false };
-        updateStatus.run(body.status, new Date().toISOString(), orderId);
-        return { order: hydrate(byId.get(orderId)), changed: true };
+        const now = nextTimestamp(row.updated_at);
+        updateStatus.run(body.status, now, orderId);
+        const event = appendEvent(planId, orderId, 'order_status_changed', { ticket: row.ticket,
+          changes: [{ field: 'status', from: row.status, to: body.status }] }, now);
+        return { order: hydrate(byId.get(orderId)), changed: true, event };
+      });
+    },
+    updateComparedFields(planId, orderId, body) {
+      const input = validateComparedFields(body);
+      return transaction(() => {
+        const row = requireOwned(planId, orderId);
+        if (row.updated_at !== input.expectedUpdatedAt) {
+          throw publicError(409, '订单已发生变化，请重新加载订单并再次对比截图。');
+        }
+        const columns = { volume: 'volume', reportedSL: 'reported_sl', reportedTP: 'reported_tp' };
+        const changes = input.supplied.filter(key => !sameNumber(row[columns[key]], input.values[key]))
+          .map(key => ({ field: key, from: row[columns[key]] ?? null, to: input.values[key] }));
+        if (!changes.length) return { order: hydrate(row), changed: false, event: null };
+        const next = { volume: row.volume, reportedSL: row.reported_sl, reportedTP: row.reported_tp };
+        for (const change of changes) next[change.field] = change.to;
+        const now = nextTimestamp(row.updated_at);
+        updateCompared.run(next.volume, next.reportedSL, next.reportedTP, now, orderId);
+        const event = appendEvent(planId, orderId, 'order_fields_changed', { ticket: row.ticket, changes }, now);
+        return { order: hydrate(byId.get(orderId)), changed: true, event };
       });
     },
     exportForPlan(planId) {
