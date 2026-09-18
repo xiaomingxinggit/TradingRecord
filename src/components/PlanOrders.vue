@@ -184,7 +184,8 @@ defineExpose({ dirty, busy, needsBeforeUnload, addManual })
     <section v-if="captureOpen" class="order-capture">
       <h3>订单截图识别</h3>
       <p class="order-help">请选择截图所处阶段，保留完整列宽。支持固定布局的表格和无表头单行；当前市价和浮盈不作为平仓结果。选择图片或在此区域打开时粘贴图片。</p>
-      <div class="order-actions"><ElSelect v-model="ocrMode" :disabled="locked || !!preview || rows.some(row => row.source === 'screenshot')" aria-label="截图阶段" style="width:160px"><ElOption label="挂单" value="pending"/><ElOption label="持仓" value="open"/><ElOption label="已平仓" value="closed"/></ElSelect><ElButton :disabled="locked" :loading="recognizing" @click="imageInput?.click()">选择截图</ElButton><ElButton :disabled="locked" @click="closeCapture">关闭原图预览</ElButton></div>
+      <p v-if="ocrMode === 'open'" class="order-help">持仓中截图请保留以下列顺序与整行宽度：品种、订单号、开仓时间、类型、交易量、开仓价、止损、止盈、当前价、浮动盈利。可以只截一行，不需要表头。订单号与开仓时间分别识别，右侧当前价与浮盈不录入；空白或不可靠的字段需核对补填。</p>
+      <div class="order-actions"><ElSelect v-model="ocrMode" :disabled="locked || !!preview || rows.some(row => row.source === 'screenshot')" aria-label="截图阶段" style="width:160px"><ElOption label="挂单" value="pending"/><ElOption label="持仓中" value="open"/><ElOption label="已平仓" value="closed"/></ElSelect><ElButton :disabled="locked" :loading="recognizing" @click="imageInput?.click()">选择截图</ElButton><ElButton :disabled="locked" @click="closeCapture">关闭原图预览</ElButton></div>
       <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="chooseImage"/>
       <ElImage v-if="preview" :src="preview" :preview-src-list="[preview]" preview-teleported fit="contain" class="order-image" alt="本次订单截图，请核对每行数据"/>
       <ElAlert v-for="(warning, index) in ocrWarnings" :key="index" :title="warning" type="warning" :closable="false" class="order-warning"/>

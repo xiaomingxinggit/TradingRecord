@@ -19,6 +19,14 @@ const LIVE_COLUMNS = {
   volume: [0.40, 0.487], entryPrice: [0.50, 0.587],
   reportedSL: [0.60, 0.680], reportedTP: [0.70, 0.780],
 };
+// Positions has its own ticket AND report-clock columns. Coordinates describe
+// the full table, including the two trailing columns that we never recognize.
+const OPEN_REFERENCE_WIDTH = 2533;
+const OPEN_COLUMNS = {
+  symbol: [24, 328], ticket: [328, 556], openTime: [556, 731],
+  orderType: [731, 984], volume: [984, 1237], openPrice: [1237, 1490],
+  reportedSL: [1490, 1743], reportedTP: [1743, 1996],
+};
 const LABELS = {
   ticket: '订单号', symbol: '品种', orderType: '交易类型', volume: '手数',
   pendingPrice: '挂单目标价', openPrice: '开仓价', closePrice: '平仓价',
@@ -47,6 +55,86 @@ function cropBounds(columns, width) {
     const left = Math.max(2, Math.round(from * width) + 2);
     return [key, { left, width: Math.max(1, Math.round(to * width) - left - 2) }];
   }));
+}
+
+function openCells(pixels, width, height) {
+  const scale = width / OPEN_REFERENCE_WIDTH;
+  const rules = new Map();
+  const radius = Math.max(2, Math.round(8 * scale));
+  const shoulder = Math.max(2, Math.ceil(3 * scale));
+  // Search only close to each expected separator, not arbitrary text strokes.
+  // Look across a few pixels so proportionally scaled rules can be wider than 1px.
+  for (const edge of new Set(Object.values(OPEN_COLUMNS).flat().filter(x => x !== OPEN_COLUMNS.symbol[0]))) {
+    const expected = Math.round(edge * scale);
+    let best = null;
+    const scores = new Map();
+    for (let x = expected - radius; x <= expected + radius; x++) {
+      let score = 0;
+      for (let y = 0; y < height; y++) {
+        const p = pixels[y * width + x];
+        if (p >= 100 && p < 245
+          && Math.max(pixels[y * width + x - shoulder], pixels[y * width + x + shoulder]) > p + 10) score++;
+      }
+      scores.set(x, score);
+      if (score >= height * 0.7 && (!best || score > best.score
+        || (score === best.score && Math.abs(x - expected) < Math.abs(best.x - expected)))) best = { x, score };
+    }
+    if (best) {
+      let left = best.x, right = best.x + 1;
+      while (scores.get(left - 1) >= height * 0.7) left--;
+      while (scores.get(right) >= height * 0.7) right++;
+      rules.set(edge, { left, right });
+    } else rules.set(edge, { left: expected, right: expected });
+  }
+  return Object.fromEntries(Object.entries(OPEN_COLUMNS).map(([key, [from, to]]) => {
+    const left = rules.get(from)?.right ?? Math.round(from * scale);
+    const right = rules.get(to).left;
+    // Exclude only the detected rule itself. No fixed right inset: the last
+    // digit of a right-aligned value may sit immediately beside the separator.
+    return [key, { left, width: Math.max(1, right - left) }];
+  }));
+}
+
+function openValueCell(pixels, width, top, bottom, key, cell) {
+  if (key !== 'reportedSL' && key !== 'reportedTP') return cell;
+  const scale = width / OPEN_REFERENCE_WIDTH;
+  const right = cell.left + cell.width;
+  const slotLeft = Math.max(cell.left, right - Math.ceil(22 * scale));
+  // The optional gray close control lives in the far-right slot of SL/TP.
+  // Remove it only when it is a small, isolated gray component. A dark final
+  // digit (or an uncertain shape) stays intact and goes through normal OCR.
+  const occupied = x => {
+    for (let y = top; y < bottom; y++) if (pixels[y * width + x] < 220) return true;
+    return false;
+  };
+  let end = right - 1;
+  while (end >= slotLeft && !occupied(end)) end--;
+  if (end < slotLeft) return cell;
+  let start = end;
+  while (start > slotLeft && occupied(start - 1)) start--;
+  let minY = bottom, maxY = -1, darkest = 255;
+  for (let y = top; y < bottom; y++) for (let x = start; x <= end; x++) {
+    const p = pixels[y * width + x];
+    if (p < 220) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); darkest = Math.min(darkest, p); }
+  }
+  const componentWidth = end - start + 1, componentHeight = maxY - minY + 1;
+  const maxSize = Math.ceil(12 * scale), minSize = Math.max(2, Math.floor(3 * scale));
+  const gap = Math.max(1, Math.floor(3 * scale));
+  if (darkest < 110 || componentWidth < minSize || componentWidth > maxSize
+    || componentHeight < minSize || componentHeight > maxSize
+    || componentWidth / componentHeight < 0.5 || componentWidth / componentHeight > 2
+    || right - end - 1 < Math.max(1, Math.floor(3 * scale))
+    || right - end - 1 > Math.ceil(14 * scale) || start - gap < slotLeft) return cell;
+  for (let x = start - gap; x < start; x++) if (occupied(x)) return cell;
+  let diagonalInk = 0, totalInk = 0;
+  for (let y = minY; y <= maxY; y++) for (let x = start; x <= end; x++) {
+    if (pixels[y * width + x] >= 220) continue;
+    const nx = (x - start) / (componentWidth - 1), ny = (y - minY) / (componentHeight - 1);
+    totalInk++;
+    if (Math.min(Math.abs(nx - ny), Math.abs(nx + ny - 1)) <= 0.3) diagonalInk++;
+  }
+  if (diagonalInk < totalInk * 0.8) return cell;
+  return { left: cell.left, width: start - cell.left };
 }
 
 function findBands(pixels, width, height, cells) {
@@ -98,6 +186,9 @@ function headerRow(readings, mode, index) {
   const text = Object.values(readings).map(cell => cell.text).join(' ').toLowerCase();
   const labels = text.match(/\b(?:ticket|symbol|volume|profit|price|type|time|order)\b/g) || [];
   if (labels.length >= 3 && !/\b(?:buy|sell|balance)\b/.test(text)) return true;
+  if (mode === 'open') return !/\d/.test(text) && !/\b(?:buy|sell|balance)\b/.test(text)
+    && readings.openTime?.inkFraction > 0 && readings.openTime.inkFraction < 0.4
+    && Object.values(readings).filter(cell => cell.hasInk).length >= 6;
   // English OCR cannot read the supplied Chinese header. Its two short time
   // labels, absence of any digits and many populated cells identify that row.
   // A damaged/unknown data row otherwise survives as an editable draft.
@@ -149,11 +240,13 @@ function draftRow(readings, mode, rowIndex) {
       if (cell.confidence >= 75 && value) row[key] = value;
       else warn(key);
     }
-  } else {
-    readNumber(mode === 'pending' ? 'pendingPrice' : 'openPrice', 'entryPrice');
-    if (mode === 'open') row.warnings.push('此持仓布局未识别开仓时间，请对照原图补填，或保持未知。');
+  } else if (mode === 'open') {
+    readNumber('openPrice');
+    const cell = read('openTime'), value = reportTime(cell.text);
+    if (cell.confidence >= 75 && value) row.openTime = value;
+    else warn('openTime');
     // The current price/floating-profit columns are deliberately never read.
-  }
+  } else readNumber('pendingPrice', 'entryPrice');
   if (!row.side) row.warnings.push('此行未可靠确认是交易行，请核对；表头、资金或汇总行不要保存。');
   return row;
 }
@@ -167,12 +260,13 @@ export async function recognizeOrders(buffer, mode) {
   } catch { throw fail('图片无法读取，请使用 PNG、JPEG 或 WEBP 截图。'); }
   const { width, height } = info;
   if (width < 1000 || width > 6000 || height < 12 || height > 1000) throw fail('请截取完整宽度的浅色交易表格，保持支持的固定列布局。');
-  const columns = mode === 'closed' ? CLOSED_COLUMNS : liveColumns(pixels, width, height);
-  const cells = cropBounds(columns, width);
+  const cells = mode === 'open' ? openCells(pixels, width, height)
+    : cropBounds(mode === 'closed' ? CLOSED_COLUMNS : liveColumns(pixels, width, height), width);
   const bands = findBands(pixels, width, height, cells);
   if (!bands.length) throw fail('没有找到可识别的表格行，请使用清晰的完整宽度截图，或手动添加订单。');
   const warnings = ['仅支持固定列顺序的完整宽度浅色 MT5 表格；隐藏、调宽或重排列后可能错位。识别结果仅为草稿，保存前请逐项对照原图。'];
-  if (mode !== 'closed') warnings.push('挂单/持仓沿用既有价位布局；票号区域若含时间或其他文字将留空，开仓时间需手填。不识别当前市价与浮动盈亏。');
+  if (mode === 'pending') warnings.push('挂单沿用既有价位布局；票号区域若含时间或其他文字将留空，开仓时间需手填。不识别当前市价与浮动盈亏。');
+  if (mode === 'open') warnings.push('持仓按独立列识别订单号与开仓时间，支持无表头完整宽度数据行；低置信度字段留空，请手工核对。开仓时间保留截图时钟，不转换时区；不识别当前市价与浮动盈亏。');
   const worker = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
   const rows = [];
   try {
@@ -183,7 +277,9 @@ export async function recognizeOrders(buffer, mode) {
     if (bands.length > candidateLimit) warnings.push(`检测到 ${bands.length} 个文字带，本次只处理前 ${candidateLimit} 个；请分开截图，剩余内容未识别。`);
     for (const [index, [top, bottom]] of bands.slice(0, candidateLimit).entries()) {
       const readings = {};
-      for (const [key, { left, width: cellWidth }] of Object.entries(cells)) {
+      for (const [key, cell] of Object.entries(cells)) {
+        const { left, width: cellWidth } = mode === 'open'
+          ? openValueCell(pixels, width, top, bottom, key, cell) : cell;
         let minInkX = cellWidth, maxInkX = -1, ink = 0;
         for (let y = top; y < bottom; y++) for (let x = 0; x < cellWidth; x++) {
           if (pixels[y * width + left + x] < 150) { ink++; minInkX = Math.min(minInkX, x); maxInkX = Math.max(maxInkX, x); }
