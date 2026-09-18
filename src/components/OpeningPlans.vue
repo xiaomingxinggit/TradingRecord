@@ -328,8 +328,13 @@ defineExpose({ showList: backToList })
         <p class="plan-footnote">计划与截图保存在本机，编辑完成后请再次保存。</p>
       </template>
 
-      <ElTabs v-else v-model="sectionTab" :before-leave="canSwitchSection" class="plan-flow-tabs">
-      <ElTabPane :label="`交易计划${planDirty ? ' · 未保存' : ''}`" name="plan">
+      <ElTabs v-else-if="mode !== 'new'" v-model="sectionTab" :before-leave="canSwitchSection" class="plan-flow-tabs">
+        <ElTabPane :label="`交易计划${planDirty ? ' · 未保存' : ''}`" name="plan"/>
+        <ElTabPane label="关联订单" name="orders"/>
+        <ElTabPane label="计划事件" name="events"/>
+        <ElTabPane label="计划复盘" name="review"/>
+      </ElTabs>
+      <template v-if="mode !== 'list' && (mode === 'new' || sectionTab === 'plan')">
       <ElCard v-if="editing" shadow="never" class="plan-editor-card">
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>{{ mode === 'new' ? '保存草稿可稍后补全' : '保存修改会保留当前状态' }}</span></div></template>
         <ElForm id="opening-plan-content" ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="actionBusy" scroll-to-error @submit.prevent.stop="savePlan()">
@@ -387,10 +392,7 @@ defineExpose({ showList: backToList })
           <template v-else><ElButton native-type="submit" form="opening-plan-content" :loading="saving && selectedStatus === 'draft'" :disabled="actionBusy"><Save :size="15"/>保存草稿</ElButton><ElButton native-type="button" type="primary" :loading="saving && selectedStatus === 'ready'" :disabled="actionBusy" @click="savePlan('ready')"><Check :size="15"/>标记待触发</ElButton></template>
         </div>
       </div>
-      </ElTabPane>
-      <ElTabPane label="交易日志" name="journal"/>
-      <ElTabPane label="计划复盘" name="review"/>
-      </ElTabs>
+      </template>
       <ElDialog v-model="abandonDialog" title="取消计划" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">
