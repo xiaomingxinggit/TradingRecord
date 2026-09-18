@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { createWorker, PSM } from 'tesseract.js';
 import english from '@tesseract.js-data/eng';
 import multer from 'multer';
+import { recognizeOrders } from './order-ocr.mjs';
 
 const fail = (message, status = 422) => Object.assign(new Error(message), { status });
 // Fixed positions in the supplied 2533px-wide MT5 positions screenshot.
@@ -89,6 +90,20 @@ export function mountPriceOcr(app) {
       if (busy) return next(fail('正在识别另一张图片，请稍后重试。', 429));
       busy = true;
       try { res.json({ rows: await recognizePrices(req.file.buffer) }); }
+      catch (e) { next(e); }
+      finally { busy = false; }
+    });
+  });
+  // Both OCR endpoints share this lock: separate workers must not contend for
+  // local CPU/memory when a price request and an order request arrive together.
+  app.post('/api/order-ocr/:mode', (req, res, next) => {
+    if (!['pending', 'open', 'closed'].includes(req.params.mode)) return next(fail('请选择挂单、持仓或已平仓识别模式。', 400));
+    upload.single('image')(req, res, async (error) => {
+      if (error) return next(fail('请上传一张不超过 5 MB 的图片。', 400));
+      if (!req.file || !['image/png', 'image/jpeg', 'image/webp'].includes(req.file.mimetype)) return next(fail('请选择 PNG、JPEG 或 WEBP 图片。', 400));
+      if (busy) return next(fail('正在识别另一张图片，请稍后重试。', 429));
+      busy = true;
+      try { res.json(await recognizeOrders(req.file.buffer, req.params.mode)); }
       catch (e) { next(e); }
       finally { busy = false; }
     });

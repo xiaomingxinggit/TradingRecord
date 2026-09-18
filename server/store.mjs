@@ -10,7 +10,7 @@ export function createStore(dataDir) {
   try {
     db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const plans = createPlanStore(db);
-    return { plans, close: () => db.close() };
+    return { plans, orders: plans.orderStore, close: () => db.close() };
   } catch (error) {
     db.close();
     throw error;

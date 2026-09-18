@@ -10,9 +10,9 @@ import type { FormInstance, FormRules, TableInstance, UploadFile, UploadInstance
 import { ArrowLeft, ArrowRight, Check, ClipboardPenLine, ImagePlus, Pencil, Plus, Save } from 'lucide-vue-next'
 import PlanStatusMenu from './PlanStatusMenu.vue'
 import SymbolSelect from './SymbolSelect.vue'
-import PlanSimpleReview from './PlanSimpleReview.vue'
 import PriceOcr from './PriceOcr.vue'
 import PlanAdjustments from './PlanAdjustments.vue'
+import PlanLinkedOrders from './PlanLinkedOrders.vue'
 import { statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
 
@@ -23,20 +23,25 @@ type MarketState = 'uptrend' | 'downtrend' | 'range' | 'uncertain'
 interface Plan {
   id: string; symbol: string; side: PlanSide; timeframe: string;
   marketState: MarketState; keyStructure: string; reason: string;
+  triggerCondition: string; invalidationCondition: string;
+  executionCounts?: { pending: number; open: number; closed: number; ended: number };
+  simpleReview?: { result?: string; adherence?: string; good?: string; improve?: string; status?: string };
   entryPrice: number | null; stopLoss: number | null; takeProfit: number | null;
   status: PlanStatus; statusChangedAt: string | null; abandonReason: string;
   createdAt: string; updatedAt: string; images: PlanImage[];
 }
-interface PlanForm extends Omit<Plan, 'id' | 'images' | 'createdAt' | 'updatedAt' | 'entryPrice' | 'stopLoss' | 'takeProfit' | 'status' | 'statusChangedAt' | 'abandonReason'> {
+interface PlanForm extends Omit<Plan, 'id' | 'images' | 'createdAt' | 'updatedAt' | 'entryPrice' | 'stopLoss' | 'takeProfit' | 'status' | 'statusChangedAt' | 'abandonReason' | 'executionCounts' | 'simpleReview'> {
   entryPrice: number | undefined; stopLoss: number | undefined; takeProfit: number | undefined;
 }
 interface PlanUpload extends UploadUserFile { existingId?: string }
 
+const emit = defineEmits<{ openOrder: [id: string]; createOrder: [planId: string] }>()
 const plans = ref<Plan[]>([]), loading = ref(true), error = ref(''), imageError = ref('')
 const mode = ref<'list' | 'view' | 'new' | 'edit'>('list'), activePlan = ref<Plan | null>(null)
 const formRef = ref<FormInstance>(), uploadRef = ref<UploadInstance>()
 const adjustmentsRef = ref<InstanceType<typeof PlanAdjustments>>()
-const reviewRef = ref<InstanceType<typeof PlanSimpleReview>>()
+const ordersRef = ref<InstanceType<typeof PlanLinkedOrders>>()
+const ordersVersion = ref(0)
 const sectionTab = ref('plan')
 const planOcrOpen = ref(false), leaving = ref(false)
 const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('descending')
@@ -57,10 +62,10 @@ const maxImageCount = 4, maxImageSize = 5 * 1024 * 1024
 const form = ref<PlanForm>(emptyForm())
 const editing = computed(() => mode.value === 'new' || mode.value === 'edit')
 const planBusy = computed(() => saving.value || !!changingStatusId.value || viewingPlan.value)
-const actionBusy = computed(() => planBusy.value || !!adjustmentsRef.value?.busy || !!reviewRef.value?.busy || planOcrOpen.value || leaving.value)
+const actionBusy = computed(() => planBusy.value || !!adjustmentsRef.value?.busy || !!ordersRef.value?.busy || planOcrOpen.value || leaving.value)
 const planDirty = computed(() => editing.value && snapshot() !== initialSnapshot.value)
-const dirtySections = computed(() => [planDirty.value ? '开仓计划' : '', adjustmentsRef.value?.dirty ? '持仓过程' : '', reviewRef.value?.dirty ? '交易复盘' : ''].filter(Boolean))
-const requiredBasics = computed(() => ['ready', 'executed'].includes(mode.value === 'edit' ? activePlan.value?.status || 'draft' : selectedStatus.value))
+const dirtySections = computed(() => [planDirty.value ? '交易计划' : '', ordersRef.value?.dirty ? '订单关联' : '', adjustmentsRef.value?.dirty ? '历史来源绑定' : ''].filter(Boolean))
+const requiredBasics = computed(() => (mode.value === 'edit' ? activePlan.value?.status : selectedStatus.value) === 'ready')
 const sortedPlans = computed(() => {
   const direction = createdAtOrder.value === 'ascending' ? 1 : -1
   return [...plans.value].sort((a, b) => {
@@ -71,13 +76,13 @@ const sortedPlans = computed(() => {
 })
 const pagePlans = computed(() => sortedPlans.value.slice((pageNumber.value - 1) * 10, pageNumber.value * 10))
 const previewUrls = computed(() => editing.value ? files.value.flatMap(f => f.url ? [f.url] : []) : activePlan.value?.images.map(i => i.url) || [])
-const title = computed(() => ({ list: '开仓计划', view: '计划详情', new: '新建计划', edit: '编辑计划' })[mode.value])
+const title = computed(() => ({ list: '交易计划', view: '计划详情', new: '新建计划', edit: '编辑计划' })[mode.value])
 const planRatio = computed(() => riskReward(editing.value ? form.value : activePlan.value))
 const rules = computed<FormRules<PlanForm>>(() => ({
-  symbol: [{ validator: (_rule, _value, callback) => callback(pendingSymbol.value !== null ? new Error('请先选择品种候选或按 Enter 确认输入，当前输入尚未保存。') : undefined), trigger: 'change' }, { required: requiredBasics.value, whitespace: true, message: '待执行或已执行计划需要交易品种。', trigger: 'blur' }, { max: 40, message: '品种最多 40 个字符。', trigger: 'blur' }],
-  side: [{ required: requiredBasics.value, message: '待执行或已执行计划需要选择做多或做空。', trigger: 'change' }],
-  timeframe: [{ required: requiredBasics.value, message: '待执行或已执行计划需要分析周期。', trigger: 'change' }],
-  reason: [{ required: requiredBasics.value, whitespace: true, message: '待执行或已执行计划需要入场理由。', trigger: 'blur' }, { max: 5000, message: '入场理由最多 5000 字。', trigger: 'blur' }],
+  symbol: [{ validator: (_rule, _value, callback) => callback(pendingSymbol.value !== null ? new Error('请先选择品种候选或按 Enter 确认输入，当前输入尚未保存。') : undefined), trigger: 'change' }, { required: requiredBasics.value, whitespace: true, message: '待触发计划需要交易品种。', trigger: 'blur' }, { max: 40, message: '品种最多 40 个字符。', trigger: 'blur' }],
+  side: [{ required: requiredBasics.value, message: '待触发计划需要选择做多或做空。', trigger: 'change' }],
+  timeframe: [{ required: requiredBasics.value, message: '待触发计划需要分析周期。', trigger: 'change' }],
+  reason: [{ required: requiredBasics.value, whitespace: true, message: '待触发计划需要入场理由。', trigger: 'blur' }, { max: 5000, message: '入场理由最多 5000 字。', trigger: 'blur' }],
   keyStructure: [{ max: 300, message: '关键结构最多 300 字。', trigger: 'blur' }],
   entryPrice: [{ validator: priceValidator, trigger: 'blur' }],
   stopLoss: [{ validator: priceValidator, trigger: 'blur' }],
@@ -85,7 +90,7 @@ const rules = computed<FormRules<PlanForm>>(() => ({
 }))
 
 function emptyForm(): PlanForm {
-  return { symbol: 'XAUUSD', side: '', timeframe: '',
+  return { symbol: 'XAUUSD', side: '', timeframe: '', triggerCondition: '', invalidationCondition: '',
     marketState: 'uncertain', keyStructure: '', reason: '', entryPrice: undefined,
     stopLoss: undefined, takeProfit: undefined }
 }
@@ -148,6 +153,20 @@ function sectionSaved(saved: { id: string; updatedAt: string }) {
   plans.value = plans.value.map(plan => plan.id === saved.id ? { ...plan, updatedAt: saved.updatedAt } : plan)
   if (activePlan.value?.id === saved.id) activePlan.value = { ...activePlan.value, updatedAt: saved.updatedAt }
 }
+function ordersUpdated(orders: { state: string }[]) {
+  if (!activePlan.value) return
+  const count = (states: string[]) => orders.filter(order => states.includes(order.state)).length
+  const executionCounts = { pending: count(['pending']), open: count(['open']), closed: count(['closed']), ended: count(['cancelled', 'expired']) }
+  rememberPlan({ ...activePlan.value, executionCounts }); ordersVersion.value++
+}
+function executionLabel(plan: Plan) {
+  const counts = plan.executionCounts
+  return counts ? `挂单 ${counts.pending} · 持仓 ${counts.open} · 平仓 ${counts.closed} · 结束 ${counts.ended}` : '尚无订单'
+}
+function historicalLabel(value?: string) {
+  const labels: Record<string, string> = { unknown: '未记录', unfinished: '未结束', win: '盈利', loss: '亏损', breakeven: '持平', yes: '是', partial: '部分', no: '否', draft: '草稿', completed: '已完成', unassessed: '未评定' }
+  return value ? labels[value] || value : '未记录'
+}
 async function updateStatus(plan: Plan, status: PlanStatus, reason?: string) {
   if (actionBusy.value || editing.value) return false
   changingStatusId.value = plan.id; statusError.value = ''; abandonError.value = ''
@@ -195,6 +214,7 @@ function prepareForm(plan?: Plan) {
   pendingSymbol.value = null
   form.value = plan ? { symbol: plan.symbol, side: plan.side,
     timeframe: plan.timeframe, marketState: plan.marketState, keyStructure: plan.keyStructure,
+    triggerCondition: plan.triggerCondition || '', invalidationCondition: plan.invalidationCondition || '',
     reason: plan.reason, entryPrice: plan.entryPrice ?? undefined, stopLoss: plan.stopLoss ?? undefined,
     takeProfit: plan.takeProfit ?? undefined } : emptyForm()
   files.value = plan ? plan.images.map(i => ({ uid: genFileId(), name: i.name, url: i.url, status: 'success', existingId: i.id })) : []
@@ -290,12 +310,12 @@ async function savePlan(status: 'draft' | 'ready' = 'draft') {
     const { plan } = await request<{ plan: Plan }>(path, { method: mode.value === 'edit' ? 'PUT' : 'POST', body: multipart })
     rememberPlan(plan)
     activePlan.value = plan; releasePreviews(); files.value = []; mode.value = 'view'
-    ElMessage.success(isEditing ? '修改已保存，计划状态已保留' : status === 'ready' ? '计划已标记为待执行' : '草稿已保存')
+    ElMessage.success(isEditing ? '修改已保存，计划状态已保留' : status === 'ready' ? '计划已标记为待触发' : '草稿已保存')
   } catch (e) { error.value = (e as Error).message }
   finally { saving.value = false }
 }
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (actionBusy.value || adjustmentsRef.value?.needsBeforeUnload || reviewRef.value?.needsBeforeUnload
+  if (actionBusy.value || adjustmentsRef.value?.needsBeforeUnload || ordersRef.value?.dirty
     || planDirty.value || (abandonDialog.value && abandonReason.value !== (abandonPlan.value?.abandonReason || ''))) { event.preventDefault(); event.returnValue = '' }
 }
 onMounted(() => { void loadPlans(); window.addEventListener('paste', pasteImages); window.addEventListener('beforeunload', beforeUnload) })
@@ -307,7 +327,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
 
     <section class="opening-plans">
       <div class="page-heading">
-        <div><div class="eyebrow">TRADE JOURNAL</div><h1>{{ title }}</h1><p>记下开仓想法、持仓变化和交易后的思考。</p></div>
+        <div><div class="eyebrow">TRADE JOURNAL</div><h1>{{ title }}</h1><p>先记录交易依据，再关联实际发生的订单。</p></div>
         <ElButton v-if="mode === 'list'" type="primary" :disabled="loading || actionBusy" @click="createPlan"><Plus :size="16"/>新建计划</ElButton>
         <div v-else class="plan-heading-actions">
           <ElButton :disabled="actionBusy" @click="backToList"><ArrowLeft :size="15"/>返回列表</ElButton>
@@ -331,22 +351,23 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
               <ElTableColumn label="分析周期" min-width="110" align="center" header-align="center"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
               <ElTableColumn prop="createdAt" label="创建时间" min-width="200" align="center" header-align="center" sortable="custom" :sort-orders="['descending', 'ascending']"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
               <ElTableColumn label="状态" min-width="120" align="center" header-align="center"><template #default="{ row }"><PlanStatusMenu :status="row.status" :disabled="actionBusy || abandonDialog" :loading="changingStatusId === row.id" @change="chooseStatus(row as Plan, $event)"/></template></ElTableColumn>
+              <ElTableColumn label="执行进度" min-width="270"><template #default="{ row }">{{ executionLabel(row as Plan) }}</template></ElTableColumn>
               <ElTableColumn label="操作" width="100" align="center" header-align="center"><template #default="{ row }">
                 <ElButton link type="primary" :disabled="actionBusy" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton>
               </template></ElTableColumn>
             </ElTable>
             <ElPagination v-if="plans.length > 10" v-model:current-page="pageNumber" :total="plans.length" :page-size="10" layout="total, prev, pager, next" class="plan-pagination"/>
           </template>
-          <ElEmpty v-else description="还没有开仓计划"><template #image><ClipboardPenLine :size="64" stroke-width="1" class="plan-empty-icon"/></template><ElButton type="primary" @click="createPlan">创建第一份计划</ElButton></ElEmpty>
+          <ElEmpty v-else description="还没有交易计划"><template #image><ClipboardPenLine :size="64" stroke-width="1" class="plan-empty-icon"/></template><ElButton type="primary" @click="createPlan">创建第一份计划</ElButton></ElEmpty>
         </ElCard>
         <p class="plan-footnote">计划与截图保存在本机，编辑完成后请再次保存。</p>
       </template>
 
       <ElTabs v-else v-model="sectionTab" :before-leave="canSwitchSection" class="plan-flow-tabs">
-      <ElTabPane :label="`开仓计划${planDirty ? ' · 未保存' : ''}`" name="plan">
+      <ElTabPane :label="`交易计划${planDirty ? ' · 未保存' : ''}`" name="plan">
       <ElCard v-if="editing" shadow="never" class="plan-editor-card">
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>{{ mode === 'new' ? '保存草稿可稍后补全' : '保存修改会保留当前状态' }}</span></div></template>
-        <ElForm id="opening-plan-content" ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="planBusy || adjustmentsRef?.busy || reviewRef?.busy || leaving" scroll-to-error @submit.prevent.stop="savePlan()">
+        <ElForm id="opening-plan-content" ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="planBusy || adjustmentsRef?.busy || ordersRef?.busy || leaving" scroll-to-error @submit.prevent.stop="savePlan()">
           <div class="plan-three-columns">
             <ElFormItem label="交易品种" prop="symbol"><SymbolSelect v-model="form.symbol" :disabled="saving" @pending-change="symbolPendingChanged"/></ElFormItem>
             <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
@@ -364,7 +385,9 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
           <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
           <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
           <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
-          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span><PriceOcr :disabled="planBusy || adjustmentsRef?.busy || reviewRef?.busy || leaving" target-label="原计划价位" @active-change="planOcrOpen = $event" @apply="row => { form.entryPrice = row.entryPrice; form.stopLoss = row.stopLoss ?? undefined; form.takeProfit = row.takeProfit ?? undefined; formRef?.clearValidate(['entryPrice', 'stopLoss', 'takeProfit']) }"/></div>
+          <ElFormItem label="触发条件（选填）"><ElInput v-model="form.triggerCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="满足什么条件才考虑执行？"/></ElFormItem>
+          <ElFormItem label="失效条件（选填）"><ElInput v-model="form.invalidationCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="出现什么情况，这份计划不再成立？"/></ElFormItem>
+          <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span><PriceOcr :disabled="planBusy || adjustmentsRef?.busy || ordersRef?.busy || leaving" target-label="原计划价位" @active-change="planOcrOpen = $event" @apply="row => { form.entryPrice = row.entryPrice; form.stopLoss = row.stopLoss ?? undefined; form.takeProfit = row.takeProfit ?? undefined; formRef?.clearValidate(['entryPrice', 'stopLoss', 'takeProfit']) }"/></div>
           <div class="plan-three-columns">
             <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
             <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="选填"/></ElFormItem>
@@ -382,40 +405,53 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
           <ElDescriptionsItem label="市场状态">{{ marketLabel(activePlan.marketState) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="创建时间">{{ timestamp(activePlan.createdAt) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="状态变更时间" :span="2">{{ activePlan.statusChangedAt ? timestamp(activePlan.statusChangedAt) : '未记录' }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="执行进度" :span="2">{{ executionLabel(activePlan) }}（来自关联订单）</ElDescriptionsItem>
         </ElDescriptions>
         <p class="plan-status-description">{{ statusInfo(activePlan.status).description }}</p>
-        <div v-if="activePlan.status === 'abandoned' || activePlan.abandonReason" class="plan-detail-section"><h3>{{ activePlan.status === 'abandoned' ? '放弃原因' : '上次放弃原因' }}</h3><p :class="{ 'plan-unfilled': !activePlan.abandonReason }">{{ activePlan.abandonReason || '未填写' }}</p></div>
+        <div v-if="activePlan.status === 'abandoned' || activePlan.abandonReason" class="plan-detail-section"><h3>{{ activePlan.status === 'abandoned' ? '取消原因' : '上次取消原因' }}</h3><p :class="{ 'plan-unfilled': !activePlan.abandonReason }">{{ activePlan.abandonReason || '未填写' }}</p></div>
         <div class="plan-detail-section"><h3>行情截图 <span v-if="activePlan.images.length">{{ activePlan.images.length }} 张 · 点击放大</span></h3><div v-if="activePlan.images.length" class="plan-screenshot-grid" :class="{ single: activePlan.images.length === 1 }"><ElImage v-for="(image, index) in activePlan.images" :key="image.id" :src="image.url" :alt="image.name" fit="contain" :preview-src-list="activePlan.images.map(i => i.url)" :initial-index="index" preview-teleported :z-index="4000"><template #error><span class="plan-broken-image">截图无法读取</span></template></ElImage></div><p v-else class="plan-unfilled">未添加截图</p></div>
         <div class="plan-detail-section"><h3>关键结构</h3><p :class="{ 'plan-unfilled': !activePlan.keyStructure }">{{ activePlan.keyStructure || '未填写' }}</p></div>
         <div class="plan-detail-section"><h3>入场理由</h3><p :class="{ 'plan-unfilled': !activePlan.reason }">{{ activePlan.reason || '未填写' }}</p></div>
+        <div class="plan-detail-section"><h3>触发条件</h3><p>{{ activePlan.triggerCondition || '未填写' }}</p></div>
+        <div class="plan-detail-section"><h3>失效条件</h3><p>{{ activePlan.invalidationCondition || '未填写' }}</p></div>
         <div class="plan-detail-section"><h3>计划价位</h3><div class="plan-three-columns plan-price-values"><div><span>计划入场价</span><strong>{{ activePlan.entryPrice ?? '—' }}</strong></div><div><span>止损价</span><strong>{{ activePlan.stopLoss ?? '—' }}</strong></div><div><span>止盈价</span><strong>{{ activePlan.takeProfit ?? '—' }}</strong></div></div></div>
         <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
         <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
       </ElCard>
-      <ElAlert v-if="mode === 'new'" title="请先保存开仓计划，即可记录持仓过程与交易复盘。" type="info" :closable="false" show-icon style="margin-top: 20px"/>
+      <ElAlert v-if="mode === 'new'" title="保存计划后即可关联订单；也可以从“交易订单”独立记录计划外交易。" type="info" :closable="false" show-icon style="margin-top: 20px"/>
       <div v-if="editing" class="plan-form-footer">
-        <span>{{ mode === 'edit' && activePlan ? `仅保存开仓内容；保留${statusInfo(activePlan.status).label}状态、过程及复盘草稿` : '待执行需填写品种、方向、周期和入场理由' }}</span>
+        <span>{{ mode === 'edit' && activePlan ? `仅保存计划内容；保留${statusInfo(activePlan.status).label}状态与其他页签输入` : '待触发需填写品种、方向、周期和入场理由' }}</span>
         <div>
           <ElButton v-if="mode === 'edit'" native-type="submit" form="opening-plan-content" type="primary" :loading="saving" :disabled="actionBusy"><Save :size="15"/>保存计划修改</ElButton>
-          <template v-else><ElButton native-type="submit" form="opening-plan-content" :loading="saving && selectedStatus === 'draft'" :disabled="actionBusy"><Save :size="15"/>保存草稿</ElButton><ElButton native-type="button" type="primary" :loading="saving && selectedStatus === 'ready'" :disabled="actionBusy" @click="savePlan('ready')"><Check :size="15"/>标记待执行</ElButton></template>
+          <template v-else><ElButton native-type="submit" form="opening-plan-content" :loading="saving && selectedStatus === 'draft'" :disabled="actionBusy"><Save :size="15"/>保存草稿</ElButton><ElButton native-type="button" type="primary" :loading="saving && selectedStatus === 'ready'" :disabled="actionBusy" @click="savePlan('ready')"><Check :size="15"/>标记待触发</ElButton></template>
         </div>
       </div>
       </ElTabPane>
-      <ElTabPane :label="`持仓过程${adjustmentsRef?.dirty ? ' · 未保存' : ''}`" name="process" :disabled="!activePlan">
-        <PlanAdjustments v-if="activePlan" :key="activePlan.id" ref="adjustmentsRef" :plan-id="activePlan.id" :disabled="planBusy || abandonDialog || planOcrOpen || reviewRef?.busy || leaving" @saved="sectionSaved"/>
+      <ElTabPane :label="`关联订单${ordersRef?.dirty ? ' · 未保存' : ''}`" name="orders" :disabled="!activePlan">
+        <PlanLinkedOrders v-if="activePlan" :key="activePlan.id" ref="ordersRef" :plan-id="activePlan.id" :disabled="planBusy || abandonDialog || planOcrOpen || adjustmentsRef?.busy || leaving" @updated="ordersUpdated" @open="emit('openOrder', $event)" @create="emit('createOrder', activePlan.id)"/>
       </ElTabPane>
-      <ElTabPane :label="`交易复盘${reviewRef?.dirty ? ' · 未保存' : ''}`" name="review" :disabled="!activePlan">
-        <PlanSimpleReview v-if="activePlan" :key="activePlan.id" ref="reviewRef" :plan-id="activePlan.id" :disabled="planBusy || abandonDialog || planOcrOpen || adjustmentsRef?.busy || leaving" @saved="sectionSaved"/>
+      <ElTabPane :label="`历史记录${adjustmentsRef?.dirty ? ' · 未保存' : ''}`" name="history" :disabled="!activePlan">
+        <ElCard v-if="activePlan?.simpleReview" shadow="never" style="margin-bottom: 20px">
+          <template #header>历史计划总结 · {{ historicalLabel(activePlan.simpleReview.status) }}</template>
+          <ElAlert title="这是旧版计划级总结，保留原文供查阅；订单复盘请进入对应订单。" type="info" :closable="false"/>
+          <ElDescriptions :column="2" border style="margin-top: 16px">
+            <ElDescriptionsItem label="交易结果">{{ historicalLabel(activePlan.simpleReview.result) }}</ElDescriptionsItem>
+            <ElDescriptionsItem label="按计划执行">{{ historicalLabel(activePlan.simpleReview.adherence) }}</ElDescriptionsItem>
+          </ElDescriptions>
+          <div class="plan-detail-section"><h3>做得好的地方</h3><p>{{ activePlan.simpleReview.good || '未填写' }}</p></div>
+          <div class="plan-detail-section"><h3>下次改进</h3><p>{{ activePlan.simpleReview.improve || '未填写' }}</p></div>
+        </ElCard>
+        <PlanAdjustments v-if="activePlan" :key="activePlan.id" ref="adjustmentsRef" :plan-id="activePlan.id" :orders-version="ordersVersion" :disabled="planBusy || abandonDialog || planOcrOpen || ordersRef?.busy || leaving" @saved="sectionSaved"/>
       </ElTabPane>
       </ElTabs>
       <p v-if="mode !== 'list' && activePlan" class="plan-footnote">各部分独立保存，切换页签会保留当前草稿。{{ dirtySections.length ? `${dirtySections.join('、')}有未保存的内容。` : '当前没有未保存的修改。' }}</p>
-      <ElDialog v-model="abandonDialog" title="标记已放弃" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
+      <ElDialog v-model="abandonDialog" title="取消计划" width="min(420px, calc(100vw - 32px))" align-center :show-close="!changingStatusId" :close-on-click-modal="!changingStatusId" :close-on-press-escape="!changingStatusId" :before-close="closeAbandon" @closed="abandonPlan = null; abandonReason = ''; abandonError = ''">
         <ElAlert v-if="abandonError" :title="abandonError" type="error" show-icon :closable="false" class="plan-alert"/>
         <ElForm label-position="top" :disabled="!!changingStatusId" @submit.prevent="confirmAbandon">
-          <ElFormItem label="放弃原因（选填）"><ElInput v-model="abandonReason" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="记下这次不执行的原因"/></ElFormItem>
+          <ElFormItem label="取消原因（选填）"><ElInput v-model="abandonReason" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="记下这次不执行的原因"/></ElFormItem>
         </ElForm>
-        <p class="plan-status-description">改回其他状态后，原因保留为“上次放弃原因”；再次放弃时可修改。</p>
-        <template #footer><ElButton :disabled="!!changingStatusId" @click="closeAbandon()">取消</ElButton><ElButton type="primary" :loading="!!changingStatusId" :disabled="!!changingStatusId" @click="confirmAbandon">确认放弃</ElButton></template>
+        <p class="plan-status-description">改回其他状态后，原因保留为“上次取消原因”；再次取消时可修改。</p>
+        <template #footer><ElButton :disabled="!!changingStatusId" @click="closeAbandon()">取消</ElButton><ElButton type="primary" :loading="!!changingStatusId" :disabled="!!changingStatusId" @click="confirmAbandon">确认取消</ElButton></template>
       </ElDialog>
       <ElImageViewer v-if="previewOpen && previewUrls.length" :url-list="previewUrls" :initial-index="previewIndex" :z-index="4000" teleported hide-on-click-modal @close="previewOpen = false"/>
     </section>

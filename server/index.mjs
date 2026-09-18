@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './store.mjs';
 import { createPlansRouter } from './plans.mjs';
+import { createOrdersRouter } from './orders.mjs';
 import { mountPriceOcr } from './price-ocr.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -28,6 +29,7 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
   });
   mountPriceOcr(app);
   app.use('/api/plans', createPlansRouter(app.locals.store.plans));
+  app.use('/api/orders', createOrdersRouter(app.locals.store.orders, app.locals.store.plans));
   app.use('/api', (_req, _res, next) => next(publicError(404, '接口不存在。')));
 
   const distDir = join(projectDir, 'dist');
@@ -42,7 +44,16 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     if (error.type === 'entity.too.large') return res.status(413).json({ error: '请求内容过大，请缩短文字后重试。' });
     const status = error.status ?? 500;
     if (status >= 500) console.error(error);
-    res.status(status).json({ error: status >= 500 ? '处理失败，请稍后重试。' : error.message });
+    // Only expose the documented conflict fields; never serialize arbitrary errors.
+    const scalar = value => typeof value === 'string' ? value.slice(0, 500)
+      : typeof value === 'number' && Number.isFinite(value) ? value : value === null ? null : '';
+    const details = status === 409 && Array.isArray(error.details?.conflicts) ? {
+      conflicts: error.details.conflicts.slice(0, 30).map(item => ({ field: scalar(item.field), label: scalar(item.label),
+        existing: scalar(item.existing), incoming: scalar(item.incoming) })),
+      ...(typeof error.details.ownerPlanId === 'string' ? { ownerPlanId: error.details.ownerPlanId.slice(0, 200) } : {}),
+      ...(typeof error.details.ownerPlanLabel === 'string' ? { ownerPlanLabel: error.details.ownerPlanLabel.slice(0, 200) } : {}),
+    } : undefined;
+    res.status(status).json({ error: status >= 500 ? '处理失败，请稍后重试。' : error.message, ...(details ? { details } : {}) });
   });
   return app;
 }

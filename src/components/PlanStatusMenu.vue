@@ -64,7 +64,7 @@ watch([() => props.status, blocked], closeMenu)
 .plan-status-trigger:disabled { cursor: wait; opacity: .65; }
 .plan-status-tag-content { display: inline-flex; align-items: center; gap: 4px; }
 .plan-status-strip { --el-segmented-bg-color: transparent; --el-segmented-padding: 0; --el-segmented-item-selected-color: var(--el-color-primary); --el-segmented-item-selected-bg-color: var(--el-color-primary-light-9); --el-segmented-item-hover-bg-color: var(--el-fill-color-light); --el-segmented-item-active-bg-color: var(--el-color-primary-light-9); font-size: 13px; }
-.plan-status-strip :deep(.el-segmented__group) { gap: 2px; flex-wrap: nowrap; }
+.plan-status-strip :deep(.el-segmented__group) { gap: 2px; flex-wrap: wrap; }
 .plan-status-strip :deep(.el-segmented__item) { flex: 0 0 auto; min-height: 34px; padding: 0 10px; }
 .plan-status-strip :deep(.el-segmented__item-label) { overflow: visible; }
 .plan-status-strip :deep(.el-segmented__item:has(input:focus-visible)) { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }

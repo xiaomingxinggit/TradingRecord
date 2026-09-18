@@ -1,0 +1,209 @@
+import { createHash } from 'node:crypto';
+import sharp from 'sharp';
+import { createWorker, PSM } from 'tesseract.js';
+import english from '@tesseract.js-data/eng';
+
+const fail = (message, status = 422) => Object.assign(new Error(message), { status });
+const MODES = new Set(['pending', 'open', 'closed']);
+const MAX_ROWS = 20;
+// Proportions refer to the full-width, light MT5 table layouts supplied for
+// this feature. These are separate layouts, not an arbitrary column detector.
+const CLOSED_COLUMNS = {
+  openTime: [0.009, 0.079], symbol: [0.079, 0.1655], ticket: [0.1655, 0.2325],
+  orderType: [0.2325, 0.2905], volume: [0.2905, 0.3873], openPrice: [0.3873, 0.4832],
+  reportedSL: [0.4832, 0.5796], reportedTP: [0.5796, 0.6767],
+  closeTime: [0.6767, 0.7454], closePrice: [0.7454, 0.8413], reportedProfit: [0.8413, 0.9502],
+};
+const LIVE_COLUMNS = {
+  symbol: [0.009, 0.1295], ticket: [0.13, 0.29], orderType: [0.30, 0.387],
+  volume: [0.40, 0.487], entryPrice: [0.50, 0.587],
+  reportedSL: [0.60, 0.680], reportedTP: [0.70, 0.780],
+};
+const LABELS = {
+  ticket: '订单号', symbol: '品种', orderType: '交易类型', volume: '手数',
+  pendingPrice: '挂单目标价', openPrice: '开仓价', closePrice: '平仓价',
+  reportedSL: '止损', reportedTP: '止盈', reportedProfit: '截图盈利',
+  openTime: '开仓时间', closeTime: '平仓时间',
+};
+
+function liveColumns(pixels, width, height) {
+  // Same left-gutter correction as the existing price recognizer.
+  let separator = Math.round(width * 0.1295), best = 0;
+  for (let x = Math.floor(width * 0.12); x < width * 0.15; x++) {
+    let score = 0;
+    for (let y = 0; y < height; y++) {
+      const p = pixels[y * width + x];
+      if (p > 140 && p < 225 && pixels[y * width + x - 1] > p + 10 && pixels[y * width + x + 1] > p + 10) score++;
+    }
+    if (score > best) { best = score; separator = x; }
+  }
+  const offset = best > height * 0.5 ? Math.max(0, (separator / width - 0.1295) / 0.8705) : 0;
+  return Object.fromEntries(Object.entries(LIVE_COLUMNS).map(([key, bounds]) => [key, bounds.map(x => offset + x * (1 - offset))]));
+}
+
+function cropBounds(columns, width) {
+  return Object.fromEntries(Object.entries(columns).map(([key, [from, to]]) => {
+    // Keep table rules/icons out of OCR without clipping the right-aligned text.
+    const left = Math.max(2, Math.round(from * width) + 2);
+    return [key, { left, width: Math.max(1, Math.round(to * width) - left - 2) }];
+  }));
+}
+
+function findBands(pixels, width, height, cells) {
+  const bands = [];
+  let start = -1, lastInk = -1;
+  for (let y = 0; y <= height + 2; y++) {
+    let active = false;
+    if (y < height) {
+      for (const { left, width: cellWidth } of Object.values(cells)) {
+        let ink = 0;
+        for (let x = left; x < left + cellWidth; x++) if (pixels[y * width + x] < 150) ink++;
+        // A text band in any column is enough, even if the price/ticket is blank.
+        // Horizontal rules and solid fills do not count as text.
+        if (ink >= 3 && ink < cellWidth * 0.65) { active = true; break; }
+      }
+    }
+    if (active) { if (start < 0) start = y; lastInk = y; }
+    if (!active && start >= 0 && y - lastInk > 2) {
+      if (lastInk - start >= 3) bands.push([start, lastInk + 1]);
+      start = -1;
+    }
+  }
+  return bands;
+}
+
+// Accept only a complete report-clock value, never Date parsing/timezone conversion.
+function reportTime(value) {
+  const match = /^(\d{4})[.-](\d{2})[.-](\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return '';
+  const [, year, month, day, hour, minute, second] = match;
+  const y = Number(year), m = Number(month), d = Number(day);
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (y < 1 || m < 1 || m > 12 || d < 1 || d > days[m - 1] || Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return '';
+  return `${year}.${month}.${day} ${hour}:${minute}:${second}`;
+}
+
+function numeric(value) {
+  // Thousands separators are accepted only when grouping is unambiguous.
+  const plain = /^[+-]?\d+(?:\.\d+)?$/;
+  const grouped = /^[+-]?\d{1,3}(?:[ ,]\d{3})+(?:\.\d+)?$/;
+  if (!plain.test(value) && !grouped.test(value)) return null;
+  const result = Number(value.replace(/[ ,]/g, ''));
+  return Number.isFinite(result) ? result : null;
+}
+
+function headerRow(readings, mode, index) {
+  if (index !== 0) return false;
+  const text = Object.values(readings).map(cell => cell.text).join(' ').toLowerCase();
+  const labels = text.match(/\b(?:ticket|symbol|volume|profit|price|type|time|order)\b/g) || [];
+  if (labels.length >= 3 && !/\b(?:buy|sell|balance)\b/.test(text)) return true;
+  // English OCR cannot read the supplied Chinese header. Its two short time
+  // labels, absence of any digits and many populated cells identify that row.
+  // A damaged/unknown data row otherwise survives as an editable draft.
+  return mode === 'closed' && !/\d/.test(text) && !/\b(?:buy|sell|balance)\b/.test(text)
+    && readings.openTime?.inkFraction > 0 && readings.openTime.inkFraction < 0.4
+    && readings.closeTime?.inkFraction > 0 && readings.closeTime.inkFraction < 0.4
+    && Object.values(readings).filter(cell => cell.hasInk).length >= 6;
+}
+
+function draftRow(readings, mode, rowIndex) {
+  const row = {
+    rowIndex, ticket: '', state: mode, symbol: '', side: '', volume: null, orderType: '',
+    pendingPrice: null, openTime: '', openPrice: null, closeTime: '', closePrice: null,
+    reportedSL: null, reportedTP: null, reportedProfit: null, warnings: [],
+    raw: Object.fromEntries(Object.entries(readings).map(([key, cell]) => [key, cell.text])),
+  };
+  const read = key => readings[key] || { text: '', confidence: 0, hasInk: false };
+  const warn = key => row.warnings.push(`${LABELS[key]}缺失或无法可靠识别，请对照原图填写。`);
+  const ticket = read('ticket');
+  // Tickets must never pass through Number or character substitutions.
+  if (ticket.confidence >= 85 && /^\d+$/.test(ticket.text)) row.ticket = ticket.text;
+  else warn('ticket');
+  const symbol = read('symbol');
+  if (symbol.confidence >= 70 && /^[A-Za-z][A-Za-z0-9._#-]{0,39}$/.test(symbol.text)) row.symbol = symbol.text;
+  else warn('symbol');
+  const direction = read('orderType');
+  const orderType = direction.text.toLowerCase().replace(/\s+/g, ' ');
+  if (direction.confidence >= 75 && /^(buy|sell)( limit| stop| stop limit)?$/.test(orderType)) {
+    const pending = orderType !== 'buy' && orderType !== 'sell';
+    if (pending === (mode === 'pending')) {
+      row.side = orderType.startsWith('buy') ? 'buy' : 'sell';
+      row.orderType = orderType;
+    } else row.warnings.push('图中交易类型与所选模式不一致；请核对模式，并补填方向和交易类型。');
+  } else warn('orderType');
+  const readNumber = (key, source = key) => {
+    const cell = read(source), value = numeric(cell.text);
+    const optional = key === 'reportedSL' || key === 'reportedTP';
+    if (optional && !cell.hasInk) return;
+    if (cell.confidence >= 70 && value !== null && (key === 'reportedProfit' || value > 0)) row[key] = value;
+    else if (!(optional && cell.confidence >= 70 && value === 0)) warn(key);
+  };
+  readNumber('volume');
+  readNumber('reportedSL');
+  readNumber('reportedTP');
+  if (mode === 'closed') {
+    readNumber('openPrice'); readNumber('closePrice'); readNumber('reportedProfit');
+    for (const key of ['openTime', 'closeTime']) {
+      const cell = read(key), value = reportTime(cell.text);
+      if (cell.confidence >= 75 && value) row[key] = value;
+      else warn(key);
+    }
+  } else {
+    readNumber(mode === 'pending' ? 'pendingPrice' : 'openPrice', 'entryPrice');
+    if (mode === 'open') row.warnings.push('此持仓布局未识别开仓时间，请对照原图补填，或保持未知。');
+    // The current price/floating-profit columns are deliberately never read.
+  }
+  if (!row.side) row.warnings.push('此行未可靠确认是交易行，请核对；表头、资金或汇总行不要保存。');
+  return row;
+}
+
+export async function recognizeOrders(buffer, mode) {
+  if (!MODES.has(mode)) throw fail('请选择挂单、持仓或已平仓识别模式。', 400);
+  let pixels, info;
+  try {
+    ({ data: pixels, info } = await sharp(buffer, { limitInputPixels: 12_000_000 })
+      .flatten({ background: '#fff' }).greyscale().raw().toBuffer({ resolveWithObject: true }));
+  } catch { throw fail('图片无法读取，请使用 PNG、JPEG 或 WEBP 截图。'); }
+  const { width, height } = info;
+  if (width < 1000 || width > 6000 || height < 12 || height > 1000) throw fail('请截取完整宽度的浅色交易表格，保持支持的固定列布局。');
+  const columns = mode === 'closed' ? CLOSED_COLUMNS : liveColumns(pixels, width, height);
+  const cells = cropBounds(columns, width);
+  const bands = findBands(pixels, width, height, cells);
+  if (!bands.length) throw fail('没有找到可识别的表格行，请使用清晰的完整宽度截图，或手动添加订单。');
+  const warnings = ['仅支持固定列顺序的完整宽度浅色 MT5 表格；隐藏、调宽或重排列后可能错位。识别结果仅为草稿，保存前请逐项对照原图。'];
+  if (mode !== 'closed') warnings.push('挂单/持仓沿用既有价位布局；票号区域若含时间或其他文字将留空，开仓时间需手填。不识别当前市价与浮动盈亏。');
+  const worker = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
+  const rows = [];
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+    let skippedBalance = 0;
+    // Bound work even for noisy images; do not silently truncate suspected rows.
+    const candidateLimit = MAX_ROWS + 2;
+    if (bands.length > candidateLimit) warnings.push(`检测到 ${bands.length} 个文字带，本次只处理前 ${candidateLimit} 个；请分开截图，剩余内容未识别。`);
+    for (const [index, [top, bottom]] of bands.slice(0, candidateLimit).entries()) {
+      const readings = {};
+      for (const [key, { left, width: cellWidth }] of Object.entries(cells)) {
+        let minInkX = cellWidth, maxInkX = -1, ink = 0;
+        for (let y = top; y < bottom; y++) for (let x = 0; x < cellWidth; x++) {
+          if (pixels[y * width + left + x] < 150) { ink++; minInkX = Math.min(minInkX, x); maxInkX = Math.max(maxInkX, x); }
+        }
+        if (ink < 3) { readings[key] = { text: '', confidence: 100, hasInk: false, inkFraction: 0 }; continue; }
+        const y = Math.max(0, top - 2), h = Math.min(height, bottom + 2) - y;
+        const crop = await sharp(pixels, { raw: { width, height, channels: 1 } })
+          .extract({ left, top: y, width: cellWidth, height: h }).resize(cellWidth * 4, h * 4)
+          .extend({ top: 16, bottom: 16, left: 16, right: 16, background: '#fff' }).png().toBuffer();
+        const { data } = await worker.recognize(crop);
+        readings[key] = { text: data.text.trim(), confidence: data.confidence, hasInk: true, inkFraction: (maxInkX - minInkX + 1) / cellWidth };
+      }
+      if (/^balance$/i.test(readings.orderType.text.trim())) { skippedBalance++; continue; }
+      if (headerRow(readings, mode, index)) { warnings.push('已排除表头行。'); continue; }
+      if (rows.length >= MAX_ROWS) { warnings.push('一次最多返回 20 行，后续内容未识别，请分开截图。'); break; }
+      // One-based draft row identity; never derive a ticket from this index.
+      rows.push(draftRow(readings, mode, rows.length + 1));
+    }
+    if (skippedBalance) warnings.push(`已排除 ${skippedBalance} 行 balance 资金记录。`);
+    if (!rows.length) warnings.push('未找到可确认的交易行，请检查截图或手动添加订单。');
+    return { rows, imageHash: createHash('sha256').update(buffer).digest('hex'), warnings };
+  } finally { await worker.terminate(); }
+}

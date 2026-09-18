@@ -1,17 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { basename } from 'node:path';
+import { MAX_IMAGE_SIZE, MAX_IMAGES, imageTypes, validateImages } from './images.mjs';
 import { Router, json } from 'express';
 import multer from 'multer';
 import { exportPlansArchive } from './export.mjs';
 import { adjustmentJournal, updateAdjustmentJournal } from './plan-adjustments.mjs';
-import { simpleReview, updateSimpleReview } from './plan-review.mjs';
+import { simpleReview } from './plan-review.mjs';
+import { createOrderStore } from './plan-orders.mjs';
 
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const MAX_IMAGES = 4;
 const timeframes = new Set(['', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1']);
 const marketStates = new Set(['uptrend', 'downtrend', 'range', 'uncertain']);
-const planStatuses = new Set(['draft', 'ready', 'executed', 'abandoned']);
-const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const planStatuses = new Set(['draft', 'ready', 'executed', 'abandoned', 'untriggered', 'expired']);
 const publicError = (status, message) => Object.assign(new Error(message), { status });
 
 function readText(value, label, limit) {
@@ -41,6 +39,8 @@ function validateContent(body, status) {
     marketState: body.marketState ?? 'uncertain',
     keyStructure: readText(body.keyStructure, '关键结构', 300),
     reason: readText(body.reason, '入场理由', 5000),
+    triggerCondition: readText(body.triggerCondition, '触发条件', 500),
+    invalidationCondition: readText(body.invalidationCondition, '失效条件', 500),
     entryPrice: readPrice(body.entryPrice, '计划入场价'),
     stopLoss: readPrice(body.stopLoss, '止损价'),
     takeProfit: readPrice(body.takeProfit, '止盈价'),
@@ -49,11 +49,11 @@ function validateContent(body, status) {
   if (!['', 'buy', 'sell'].includes(plan.side)) throw publicError(400, '方向请选择做多或做空。');
   if (!timeframes.has(plan.timeframe)) throw publicError(400, '请选择有效的分析周期。');
   if (!marketStates.has(plan.marketState)) throw publicError(400, '请选择有效的市场状态。');
-  if (!planStatuses.has(plan.status)) throw publicError(400, '计划状态仅支持草稿、待执行、已执行或已放弃。');
-  if (plan.status === 'ready' || plan.status === 'executed') {
+  if (!planStatuses.has(plan.status)) throw publicError(400, '请选择有效的计划意图状态。');
+  if (plan.status === 'ready') {
     const missing = [['symbol', '品种'], ['side', '方向'], ['timeframe', '分析周期'], ['reason', '入场理由']]
       .filter(([field]) => !plan[field]).map(([, label]) => label);
-    if (missing.length) throw publicError(400, `${plan.status === 'ready' ? '待执行' : '已执行'}计划需要${missing.join('、')}，请先编辑补齐。`);
+    if (missing.length) throw publicError(400, `待触发计划需要${missing.join('、')}，请先编辑补齐。`);
   }
   const { side, entryPrice, stopLoss, takeProfit } = plan;
   if (side) {
@@ -85,39 +85,6 @@ function validatePayload(body, editing, status) {
   return { plan, keepImageIds };
 }
 
-function imageSignature(buffer) {
-  if (buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-    && buffer.toString('ascii', 12, 16) === 'IHDR'
-    && buffer.readUInt32BE(16) > 0 && buffer.readUInt32BE(20) > 0) return 'image/png';
-  if (buffer.length >= 4 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
-  if (buffer.length >= 20 && buffer.toString('ascii', 0, 4) === 'RIFF'
-    && buffer.toString('ascii', 8, 12) === 'WEBP'
-    && ['VP8 ', 'VP8L', 'VP8X'].includes(buffer.toString('ascii', 12, 16))
-    && buffer.readUInt32LE(4) + 8 === buffer.length) return 'image/webp';
-  return null;
-}
-
-function imageName(originalName) {
-  let name = originalName;
-  // Busboy exposes multipart filenames as Latin-1; recover UTF-8 names when possible.
-  if ([...name].every((char) => char.codePointAt(0) <= 255)) {
-    try { name = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(name, 'latin1')); } catch { /* Keep the original name. */ }
-  }
-  return [...basename(name.replaceAll('\\', '/')).replace(/[\u0000-\u001f\u007f]/g, '')].slice(0, 180).join('') || '行情截图';
-}
-
-export function validateImages(files) {
-  if (files.length > MAX_IMAGES) throw publicError(400, '每个计划最多保存 4 张截图。');
-  return files.map((file) => {
-    if (file.size > MAX_IMAGE_SIZE) throw publicError(413, '每张截图不能超过 5 MB。');
-    const mimeType = imageSignature(file.buffer);
-    if (!mimeType || !imageTypes.has(file.mimetype) || file.mimetype !== mimeType) {
-      throw publicError(400, '截图内容与格式不符，仅支持有效的 PNG、JPEG 和 WebP 图片。');
-    }
-    return { id: randomUUID(), name: imageName(file.originalname), mimeType, size: file.size, buffer: file.buffer };
-  });
-}
-
 export function createPlanStore(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS plans (
@@ -139,6 +106,7 @@ export function createPlanStore(db) {
     );
     CREATE INDEX IF NOT EXISTS plan_images_plan ON plan_images(plan_id);
   `);
+  const orderStore = createOrderStore(db);
   const findPlan = db.prepare('SELECT id, payload, created_at, updated_at FROM plans WHERE id = ?');
   const allPlans = db.prepare('SELECT id, payload, created_at, updated_at FROM plans ORDER BY created_at DESC, id DESC');
   const findImages = db.prepare(`SELECT id, name, mime_type AS mimeType, size
@@ -160,8 +128,15 @@ export function createPlanStore(db) {
     const plan = JSON.parse(row.payload);
     // Omit old associations from all API responses without rewriting saved plans.
     delete plan.accountId;
+    const orders = orderStore.list(row.id);
+    const executionCounts = { pending: 0, open: 0, closed: 0, ended: 0 };
+    for (const order of orders) {
+      if (['cancelled', 'expired'].includes(order.state)) executionCounts.ended += 1;
+      else if (Object.hasOwn(executionCounts, order.state)) executionCounts[order.state] += 1;
+    }
     return {
       ...plan, statusChangedAt: plan.statusChangedAt ?? null, abandonReason: plan.abandonReason ?? '',
+      triggerCondition: plan.triggerCondition ?? '', invalidationCondition: plan.invalidationCondition ?? '', orders, executionCounts,
       id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
       images: findImages.all(row.id).map((image) => ({ ...image,
         url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })),
@@ -169,6 +144,7 @@ export function createPlanStore(db) {
   };
 
   return {
+    orderStore,
     list() {
       return allPlans.all().map(hydrate);
     },
@@ -178,8 +154,9 @@ export function createPlanStore(db) {
       db.exec('BEGIN');
       try {
         const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id) }));
+        const orders = orderStore.exportSnapshot();
         db.exec('COMMIT');
-        return { plans };
+        return { plans, orders };
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;
@@ -188,23 +165,29 @@ export function createPlanStore(db) {
     get(id) {
       return hydrate(findPlan.get(id));
     },
+    orders(id) {
+      if (!findPlan.get(id)) throw publicError(404, '未找到这份开仓计划。');
+      return { orders: orderStore.list(id) };
+    },
     adjustments(id) {
       const row = findPlan.get(id);
       if (!row) throw publicError(404, '未找到这份开仓计划。');
-      return { journal: adjustmentJournal(JSON.parse(row.payload)) };
+      return { journal: adjustmentJournal(JSON.parse(row.payload)), orders: orderStore.list(id) };
     },
     writeAdjustment(id, body, kind) {
+      if (kind !== 'bind-order') throw publicError(405, '计划历史只读，请在订单中新增过程记录。');
       db.exec('BEGIN IMMEDIATE');
       try {
         const row = findPlan.get(id);
         if (!row) throw publicError(404, '请先保存计划，再记录持仓调整。');
         const previous = JSON.parse(row.payload);
         const now = new Date().toISOString();
-        const { journal, changed } = updateAdjustmentJournal(previous, body, kind, now);
+        const orders = orderStore.list(id);
+        const { journal, changed } = updateAdjustmentJournal(previous, body, kind, now, orders);
         if (changed) updateStatus.run(JSON.stringify({ ...previous, adjustmentJournal: journal }), now, id);
         const plan = hydrate(findPlan.get(id));
         db.exec('COMMIT');
-        return { plan, journal, changed };
+        return { plan, journal, changed, orders };
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;
@@ -215,23 +198,6 @@ export function createPlanStore(db) {
       if (!row) throw publicError(404, '未找到这份开仓计划。');
       return { review: simpleReview(JSON.parse(row.payload)) };
     },
-    saveReview(id, body) {
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        const row = findPlan.get(id);
-        if (!row) throw publicError(404, '请先保存计划，再记录复盘。');
-        const previous = JSON.parse(row.payload);
-        const now = new Date().toISOString();
-        const review = updateSimpleReview(previous, body, now);
-        updateStatus.run(JSON.stringify({ ...previous, simpleReview: review }), now, id);
-        const plan = hydrate(findPlan.get(id));
-        db.exec('COMMIT');
-        return { plan, review };
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
-    },
     getImage(planId, imageId) {
       return readImage.get(planId, imageId) ?? null;
     },
@@ -240,7 +206,7 @@ export function createPlanStore(db) {
         || Object.keys(body).some((key) => !['status', 'abandonReason'].includes(key))) {
         throw publicError(400, '请仅提交状态及选填的放弃原因。');
       }
-      if (!planStatuses.has(body.status)) throw publicError(400, '计划状态仅支持草稿、待执行、已执行或已放弃。');
+      if (!planStatuses.has(body.status) || body.status === 'executed') throw publicError(400, '请选择草稿、待触发、未触发、取消或失效；旧执行标记不能新设置。');
       if (body.abandonReason !== undefined && body.status !== 'abandoned') {
         throw publicError(400, '仅在标记已放弃时填写放弃原因。');
       }
@@ -279,7 +245,7 @@ export function createPlanStore(db) {
         const previousPlan = previous ? JSON.parse(previous.payload) : null;
         // Content saves preserve the latest stored status, even from stale forms.
         const status = previousPlan ? previousPlan.status : payload?.status ?? 'draft';
-        if (!previous && !['draft', 'ready'].includes(status)) throw publicError(400, '新计划请先保存草稿或标记待执行。');
+        if (!previous && !['draft', 'ready'].includes(status)) throw publicError(400, '新计划请先保存草稿或标记待触发。');
         const { plan: content, keepImageIds } = validatePayload(payload, Boolean(id), status);
         if (keepImageIds.length + newImages.length > MAX_IMAGES) throw publicError(400, '每个计划最多保存 4 张截图，请先移除多余截图。');
         const plan = { ...previousPlan, ...content, statusChangedAt: previousPlan?.statusChangedAt ?? null,
@@ -346,10 +312,10 @@ export function createPlansRouter(store) {
   router.get('/', (_req, res) => res.json({ plans: store.list() }));
   router.get('/export', async (_req, res) => {
     try {
-      const { plans } = store.exportSnapshot();
-      const archive = await exportPlansArchive(plans);
+      const { plans, orders } = store.exportSnapshot();
+      const archive = await exportPlansArchive(plans, orders);
       res.set('Content-Type', 'application/zip');
-      res.set('Content-Disposition', `attachment; filename="opening-plans.zip"; filename*=UTF-8''${encodeURIComponent('开仓计划.zip')}`);
+      res.set('Content-Disposition', `attachment; filename="trading-records.zip"; filename*=UTF-8''${encodeURIComponent('交易记录.zip')}`);
       res.send(archive);
     } catch (error) {
       if (error.status === 409) return res.status(409).json({ error: error.message });
@@ -371,11 +337,10 @@ export function createPlansRouter(store) {
     res.send(Buffer.from(image.content));
   });
   router.post('/', readUpload, save);
+  router.get('/:id/orders', (req, res) => res.json(store.orders(req.params.id)));
   router.get('/:id/adjustments', (req, res) => res.json(store.adjustments(req.params.id)));
-  router.post('/:id/adjustments', json({ limit: '16kb' }), (req, res) => res.json(store.writeAdjustment(req.params.id, req.body, 'append')));
-  router.post('/:id/emotions', json({ limit: '16kb' }), (req, res) => res.json(store.writeAdjustment(req.params.id, req.body, 'emotion')));
+  router.post('/:id/adjustments/bind-order', json({ limit: '16kb' }), (req, res) => res.json(store.writeAdjustment(req.params.id, req.body, 'bind-order')));
   router.get('/:id/review', (req, res) => res.json(store.review(req.params.id)));
-  router.put('/:id/review', json({ limit: '64kb' }), (req, res) => res.json(store.saveReview(req.params.id, req.body)));
   router.put('/:id', readUpload, save);
   router.patch('/:id/status', json({ limit: '16kb' }), (req, res) => res.json(store.changeStatus(req.params.id, req.body)));
   return router;
