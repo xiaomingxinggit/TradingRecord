@@ -35,7 +35,6 @@
 .plan-image-alert { margin-top: 12px; }
 .plan-prices-heading { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--plan-border, #f0eaf5); padding-top: 24px; margin: 5px 0 20px; }
 .plan-prices-heading h3 { font-size: 14px; font-weight: 550; color: var(--plan-title, #6e5b7c); }
-.plan-prices-heading span { font-size: 11px; color: var(--plan-secondary, #ae99bb); }
 .plan-ratio { display: flex; align-items: center; gap: 14px; padding: 15px 18px; background: var(--plan-tint-bg, #f7f3fc); border-radius: 7px; color: var(--plan-secondary, #9b81af); font-size: 12px; margin-bottom: 22px; }
 .plan-ratio strong { font-size: 22px; font-family: 'Manrope Variable', sans-serif; color: var(--purple); font-weight: 650; }
 .plan-ratio small { font-size: 11px; font-weight: 400; }

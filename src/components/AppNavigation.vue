@@ -1,27 +1,18 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
-import type { MenuInstance } from 'element-plus'
 import { ElButton, ElCard, ElDivider, ElIcon, ElLink, ElMenu, ElMenuItem, ElScrollbar, ElText } from 'element-plus'
-import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, ListOrdered, ShieldCheck } from 'lucide-vue-next'
+import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, ShieldCheck } from 'lucide-vue-next'
 
-const props = defineProps<{ exporting: boolean; active: 'plans' | 'orders' }>()
-const emit = defineEmits<{ plans: []; orders: []; export: []; help: [] }>()
-const menu = ref<MenuInstance>()
-async function selectPage(value: string) {
-  if (value === 'orders') emit('orders')
-  else emit('plans')
-  await nextTick()
-  menu.value?.updateActiveIndex(props.active)
-}
+defineProps<{ exporting: boolean }>()
+const emit = defineEmits<{ plans: []; export: []; help: [] }>()
 </script>
 
 <template>
   <div class="navigation-frame">
-    <div class="brand-area"><ElLink :underline="'never'" class="brand" @click="emit('plans')"><ElIcon class="brand-mark" :size="24"><ChartNoAxesColumnIncreasing/></ElIcon><span>TradeLog</span></ElLink><ElText type="info" size="small">计划与真实执行</ElText></div>
+    <div class="brand-area"><ElLink :underline="'never'" class="brand" @click="emit('plans')"><ElIcon class="brand-mark" :size="24"><ChartNoAxesColumnIncreasing/></ElIcon><span>TradeLog</span></ElLink><ElText type="info" size="small">记录每一份交易计划</ElText></div>
     <ElScrollbar class="navigation-scroll">
       <div class="navigation-content">
         <ElText tag="p" type="info" size="small" class="nav-label">工作空间</ElText>
-        <ElMenu ref="menu" :default-active="active" class="workspace-menu" @select="selectPage"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>交易计划</span></ElMenuItem><ElMenuItem index="orders"><ElIcon><ListOrdered/></ElIcon><span>交易订单</span></ElMenuItem></ElMenu>
+        <ElMenu default-active="plans" class="workspace-menu" @select="emit('plans')"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>交易计划</span></ElMenuItem></ElMenu>
         <ElDivider/>
         <ElText tag="p" type="info" size="small" class="nav-label">数据管理</ElText>
         <ElButton text class="export-button" :loading="exporting" :disabled="exporting" @click="emit('export')"><ArrowDownToLine v-if="!exporting" :size="19"/><span>{{ exporting ? '正在导出…' : '导出数据' }}</span></ElButton>
@@ -29,7 +20,7 @@ async function selectPage(value: string) {
           <ElCard shadow="never" class="guidance-card">
             <ElIcon :size="23" color="var(--el-color-primary)"><ShieldCheck/></ElIcon>
             <h3>记录计划，沉淀思考</h3>
-            <ElText tag="p" type="info" size="small">计划记录为什么做，订单记录实际怎样做；关联后对照回看。</ElText>
+            <ElText tag="p" type="info" size="small">写清入场依据与出场理由，保留计划价位和行情截图。</ElText>
             <ElButton type="primary" link @click="emit('help')">使用说明<ArrowRight :size="14"/></ElButton>
           </ElCard>
         </div>

@@ -3,9 +3,6 @@ import { MAX_IMAGE_SIZE, MAX_IMAGES, imageTypes, validateImages } from './images
 import { Router, json } from 'express';
 import multer from 'multer';
 import { exportPlansArchive } from './export.mjs';
-import { adjustmentJournal, updateAdjustmentJournal } from './plan-adjustments.mjs';
-import { simpleReview } from './plan-review.mjs';
-import { createOrderStore } from './plan-orders.mjs';
 
 const timeframes = new Set(['', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1']);
 const marketStates = new Set(['uptrend', 'downtrend', 'range', 'uncertain']);
@@ -48,11 +45,11 @@ function validateContent(body, status) {
   if (!['', 'buy', 'sell'].includes(plan.side)) throw publicError(400, '方向请选择做多或做空。');
   if (!timeframes.has(plan.timeframe)) throw publicError(400, '请选择有效的分析周期。');
   if (!marketStates.has(plan.marketState)) throw publicError(400, '请选择有效的市场状态。');
-  if (!planStatuses.has(plan.status)) throw publicError(400, '请选择有效的计划意图状态。');
-  if (plan.status === 'ready') {
+  if (!planStatuses.has(plan.status)) throw publicError(400, '请选择有效的计划状态。');
+  if (['ready', 'executed'].includes(plan.status)) {
     const missing = [['symbol', '品种'], ['side', '方向'], ['timeframe', '分析周期'], ['reason', '入场理由']]
       .filter(([field]) => !plan[field]).map(([, label]) => label);
-    if (missing.length) throw publicError(400, `待触发计划需要${missing.join('、')}，请先编辑补齐。`);
+    if (missing.length) throw publicError(400, `${plan.status === 'executed' ? '已执行' : '待触发'}计划需要${missing.join('、')}，请先编辑补齐。`);
   }
   const { side, entryPrice, stopLoss, takeProfit } = plan;
   if (side) {
@@ -105,7 +102,6 @@ export function createPlanStore(db) {
     );
     CREATE INDEX IF NOT EXISTS plan_images_plan ON plan_images(plan_id);
   `);
-  const orderStore = createOrderStore(db);
   const findPlan = db.prepare('SELECT id, payload, created_at, updated_at FROM plans WHERE id = ?');
   const allPlans = db.prepare('SELECT id, payload, created_at, updated_at FROM plans ORDER BY created_at DESC, id DESC');
   const findImages = db.prepare(`SELECT id, name, mime_type AS mimeType, size
@@ -125,17 +121,13 @@ export function createPlanStore(db) {
   const hydrate = (row) => {
     if (!row) return null;
     const plan = JSON.parse(row.payload);
-    // Omit old associations from all API responses without rewriting saved plans.
-    delete plan.accountId;
-    const orders = orderStore.list(row.id);
-    const executionCounts = { pending: 0, open: 0, closed: 0, ended: 0 };
-    for (const order of orders) {
-      if (['cancelled', 'expired'].includes(order.state)) executionCounts.ended += 1;
-      else if (Object.hasOwn(executionCounts, order.state)) executionCounts[order.state] += 1;
-    }
+    // Responses expose only current plan fields; saved unknown fields stay private.
     return {
-      ...plan, statusChangedAt: plan.statusChangedAt ?? null, abandonReason: plan.abandonReason ?? '',
-      triggerCondition: plan.triggerCondition ?? '', invalidationCondition: plan.invalidationCondition ?? '', orders, executionCounts,
+      symbol: plan.symbol ?? '', side: plan.side ?? '', timeframe: plan.timeframe ?? '',
+      marketState: plan.marketState ?? 'uncertain', keyStructure: plan.keyStructure ?? '',
+      reason: plan.reason ?? '', invalidationCondition: plan.invalidationCondition ?? '',
+      entryPrice: plan.entryPrice ?? null, stopLoss: plan.stopLoss ?? null, takeProfit: plan.takeProfit ?? null,
+      status: plan.status ?? 'draft', statusChangedAt: plan.statusChangedAt ?? null, abandonReason: plan.abandonReason ?? '',
       id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
       images: findImages.all(row.id).map((image) => ({ ...image,
         url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })),
@@ -143,7 +135,6 @@ export function createPlanStore(db) {
   };
 
   return {
-    orderStore,
     list() {
       return allPlans.all().map(hydrate);
     },
@@ -153,9 +144,8 @@ export function createPlanStore(db) {
       db.exec('BEGIN');
       try {
         const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id) }));
-        const orders = orderStore.exportSnapshot();
         db.exec('COMMIT');
-        return { plans, orders };
+        return { plans };
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;
@@ -163,39 +153,6 @@ export function createPlanStore(db) {
     },
     get(id) {
       return hydrate(findPlan.get(id));
-    },
-    orders(id) {
-      if (!findPlan.get(id)) throw publicError(404, '未找到这份开仓计划。');
-      return { orders: orderStore.list(id) };
-    },
-    adjustments(id) {
-      const row = findPlan.get(id);
-      if (!row) throw publicError(404, '未找到这份开仓计划。');
-      return { journal: adjustmentJournal(JSON.parse(row.payload)), orders: orderStore.list(id) };
-    },
-    writeAdjustment(id, body, kind) {
-      if (kind !== 'bind-order') throw publicError(405, '计划历史只读，请在订单中新增过程记录。');
-      db.exec('BEGIN IMMEDIATE');
-      try {
-        const row = findPlan.get(id);
-        if (!row) throw publicError(404, '请先保存计划，再记录持仓调整。');
-        const previous = JSON.parse(row.payload);
-        const now = new Date().toISOString();
-        const orders = orderStore.list(id);
-        const { journal, changed } = updateAdjustmentJournal(previous, body, kind, now, orders);
-        if (changed) updateStatus.run(JSON.stringify({ ...previous, adjustmentJournal: journal }), now, id);
-        const plan = hydrate(findPlan.get(id));
-        db.exec('COMMIT');
-        return { plan, journal, changed, orders };
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
-    },
-    review(id) {
-      const row = findPlan.get(id);
-      if (!row) throw publicError(404, '未找到这份开仓计划。');
-      return { review: simpleReview(JSON.parse(row.payload)) };
     },
     getImage(planId, imageId) {
       return readImage.get(planId, imageId) ?? null;
@@ -205,7 +162,7 @@ export function createPlanStore(db) {
         || Object.keys(body).some((key) => !['status', 'abandonReason'].includes(key))) {
         throw publicError(400, '请仅提交状态及选填的放弃原因。');
       }
-      if (!planStatuses.has(body.status) || body.status === 'executed') throw publicError(400, '请选择草稿、待触发、未触发、取消或失效；旧执行标记不能新设置。');
+      if (!planStatuses.has(body.status)) throw publicError(400, '请选择有效的计划状态。');
       if (body.abandonReason !== undefined && body.status !== 'abandoned') {
         throw publicError(400, '仅在标记已放弃时填写放弃原因。');
       }
@@ -224,7 +181,6 @@ export function createPlanStore(db) {
         const now = new Date().toISOString();
         const plan = { ...previous, status: body.status, statusChangedAt: now,
           abandonReason: body.status === 'abandoned' ? abandonReason ?? previous.abandonReason ?? '' : previous.abandonReason ?? '' };
-        delete plan.accountId;
         updateStatus.run(JSON.stringify(plan), now, id);
         const saved = hydrate(findPlan.get(id));
         db.exec('COMMIT');
@@ -249,7 +205,6 @@ export function createPlanStore(db) {
         if (keepImageIds.length + newImages.length > MAX_IMAGES) throw publicError(400, '每个计划最多保存 4 张截图，请先移除多余截图。');
         const plan = { ...previousPlan, ...content, statusChangedAt: previousPlan?.statusChangedAt ?? null,
           abandonReason: previousPlan?.abandonReason ?? '' };
-        delete plan.accountId;
         const now = new Date().toISOString();
         const existingImages = previous ? findImages.all(planId) : [];
         if (keepImageIds.some((imageId) => !existingImages.some((image) => image.id === imageId))) {
@@ -311,10 +266,10 @@ export function createPlansRouter(store) {
   router.get('/', (_req, res) => res.json({ plans: store.list() }));
   router.get('/export', async (_req, res) => {
     try {
-      const { plans, orders } = store.exportSnapshot();
-      const archive = await exportPlansArchive(plans, orders);
+      const { plans } = store.exportSnapshot();
+      const archive = await exportPlansArchive(plans);
       res.set('Content-Type', 'application/zip');
-      res.set('Content-Disposition', `attachment; filename="trading-records.zip"; filename*=UTF-8''${encodeURIComponent('交易记录.zip')}`);
+      res.set('Content-Disposition', `attachment; filename="trading-plans.zip"; filename*=UTF-8''${encodeURIComponent('交易计划.zip')}`);
       res.send(archive);
     } catch (error) {
       if (error.status === 409) return res.status(409).json({ error: error.message });
@@ -336,10 +291,6 @@ export function createPlansRouter(store) {
     res.send(Buffer.from(image.content));
   });
   router.post('/', readUpload, save);
-  router.get('/:id/orders', (req, res) => res.json(store.orders(req.params.id)));
-  router.get('/:id/adjustments', (req, res) => res.json(store.adjustments(req.params.id)));
-  router.post('/:id/adjustments/bind-order', json({ limit: '16kb' }), (req, res) => res.json(store.writeAdjustment(req.params.id, req.body, 'bind-order')));
-  router.get('/:id/review', (req, res) => res.json(store.review(req.params.id)));
   router.put('/:id', readUpload, save);
   router.patch('/:id/status', json({ limit: '16kb' }), (req, res) => res.json(store.changeStatus(req.params.id, req.body)));
   return router;
