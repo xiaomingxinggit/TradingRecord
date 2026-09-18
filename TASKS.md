@@ -2,6 +2,14 @@
 
 状态：todo → active → done；有具体阻碍用 blocked 并写原因。任务调度者负责此文件，Worker 返回结果而不并行改清单。
 
+### PLAN-TEXT-01：计划出场理由字段调整
+
+- 状态：done（实现、文档与构建完成；不运行测试/API/OCR/浏览器）；负责人 DEV。基线 c03429b。
+- 范围：新计划表单和详情移除触发条件，原 invalidationCondition 显示为“出场理由”；服务端不再接受新正文写入 triggerCondition，新建可缺省，编辑只保留旧 triggerCondition；hydrate 继续兼容旧 payload。
+- 导出：历史 triggerCondition 有值时按“历史触发条件”只读导出；当前 invalidationCondition 按“出场理由”导出；无历史值不输出。
+- 文档同步：README、HelpDialog、ARCHITECTURE、plan-status 描述已消除新字段暗示；计划状态名与历史任务叙述保持不变。未读写真实数据库。
+- 验证与交付：必要 `npm run build`、`node --check server/plans.mjs`、`git diff --check`；仅提交本任务路径，不推送。运行时和真实历史字段保留效果由用户自行验收。
+
 ## 当前任务
 
 ### RESTRUCT-02：独立交易计划与订单

@@ -23,7 +23,7 @@ Vue 3 + TypeScript + Vite + Element Plus → 本机 Express → Node.js 内置 S
 
 1. **计划与订单独立**：一个计划关联零到多笔订单；一个订单关联零或一个计划。未关联订单可以独立记录过程、图片和复盘。新建计划不创建订单，取消计划不取消订单，订单成交不自动改计划状态。
 2. **计划意图状态**：draft / ready / untriggered / abandoned / expired 显示草稿 / 待触发 / 未触发 / 取消 / 失效。只有 ready 要求品种、方向、周期和理由完整。旧 executed 原值保留、可编辑正文，显示“旧人工执行标记”，不可新设置，也不是成交证据。取消原因沿用 abandonReason，不因切换状态删除。
-3. **计划字段隔离**：正文更新在事务内合并最新 payload 的白名单字段及截图；状态只更新状态元数据。保留历史未知字段、adjustmentJournal、simpleReview。新增 triggerCondition / invalidationCondition 各最多 500 字；原分析字段、截图、价位与价格距离 R 保留。createdAt 不随编辑变动。
+3. **计划字段隔离**：正文更新在事务内合并最新 payload 的白名单字段及截图；状态只更新状态元数据。保留历史未知字段、adjustmentJournal、simpleReview。当前正文只编辑 invalidationCondition（界面显示“出场理由”，最多 500 字）；旧 triggerCondition 只读兼容，后续正文保存不得清空或改写。原分析字段、截图、价位与价格距离 R 保留。createdAt 不随编辑变动。
 4. **执行进度派生**：计划响应附关联 orders 与 executionCounts，pending / open / closed 分别计数，ended 仅取消与失效，不与 closed 重复。进度不能由计划人工状态推断。
 5. **唯一订单身份**：单账户命名空间中 UUID + 全局唯一 TEXT ticket。票号只接受十进制字符串，规范化前导零，禁止经 Number 转换。planId 可 null；新建时归属冲突返回 409，不能用同号复制或转移订单。显式关联只允许 null→有效计划，同计划重试幂等；其他归属拒绝。
 6. **挂单与成交分离**：pendingVolume / pendingPrice / pendingTime / expiresAt / orderType 表达挂单；volume / openPrice / openTime 表达实际成交。pending 必须有挂单类型、目标价、挂单量；open / closed 必须有实际开仓价和成交量，closed 还需平仓价。时间未知留空；已填时间按报告时钟 `YYYY.MM.DD HH:mm:ss` 校验日历及前后顺序，不猜时区。应用录入时间为 UTC。

@@ -11,7 +11,7 @@ const fields = [
   ['status', '状态', statusLabels], ['statusChangedAt', '状态变更时间（UTC）'],
   ['abandonReason', '放弃原因'], ['symbol', '品种'], ['side', '方向', sideLabels],
   ['timeframe', '分析周期'], ['marketState', '市场状态', marketLabels],
-  ['keyStructure', '关键结构'], ['reason', '入场理由'], ['triggerCondition', '触发条件'], ['invalidationCondition', '失效条件'],
+  ['keyStructure', '关键结构'], ['reason', '入场理由'], ['invalidationCondition', '出场理由'],
   ['entryPrice', '计划入场价'], ['stopLoss', '止损价'], ['takeProfit', '止盈价'],
 ];
 const orderStates = { pending: '挂单', open: '持仓', closed: '已平仓', cancelled: '已取消', expired: '失效', observation: '观察补充' };
@@ -136,6 +136,7 @@ export async function exportPlansArchive(plans, orders = []) {
       const fieldLabel = key === 'abandonReason' && plan.status !== 'abandoned' ? '上次放弃原因' : label;
       markdown.push(`#### ${fieldLabel}`, '', textBlock(display), '');
     }
+    if (plan.triggerCondition) markdown.push('#### 历史触发条件', '', textBlock(plan.triggerCondition), '');
     // Export business fields explicitly; legacy payloads and request metadata stay private.
     markdown.push('#### 行情截图', '');
     if (!plan.images.length) markdown.push('未添加截图。', '');

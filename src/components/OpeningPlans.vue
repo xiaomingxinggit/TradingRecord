@@ -30,7 +30,7 @@ interface Plan {
   status: PlanStatus; statusChangedAt: string | null; abandonReason: string;
   createdAt: string; updatedAt: string; images: PlanImage[];
 }
-interface PlanForm extends Omit<Plan, 'id' | 'images' | 'createdAt' | 'updatedAt' | 'entryPrice' | 'stopLoss' | 'takeProfit' | 'status' | 'statusChangedAt' | 'abandonReason' | 'executionCounts' | 'simpleReview'> {
+interface PlanForm extends Omit<Plan, 'id' | 'images' | 'createdAt' | 'updatedAt' | 'entryPrice' | 'stopLoss' | 'takeProfit' | 'status' | 'statusChangedAt' | 'abandonReason' | 'triggerCondition' | 'executionCounts' | 'simpleReview'> {
   entryPrice: number | undefined; stopLoss: number | undefined; takeProfit: number | undefined;
 }
 interface PlanUpload extends UploadUserFile { existingId?: string }
@@ -90,7 +90,7 @@ const rules = computed<FormRules<PlanForm>>(() => ({
 }))
 
 function emptyForm(): PlanForm {
-  return { symbol: 'XAUUSD', side: '', timeframe: '', triggerCondition: '', invalidationCondition: '',
+  return { symbol: 'XAUUSD', side: '', timeframe: '', invalidationCondition: '',
     marketState: 'uncertain', keyStructure: '', reason: '', entryPrice: undefined,
     stopLoss: undefined, takeProfit: undefined }
 }
@@ -214,7 +214,7 @@ function prepareForm(plan?: Plan) {
   pendingSymbol.value = null
   form.value = plan ? { symbol: plan.symbol, side: plan.side,
     timeframe: plan.timeframe, marketState: plan.marketState, keyStructure: plan.keyStructure,
-    triggerCondition: plan.triggerCondition || '', invalidationCondition: plan.invalidationCondition || '',
+    invalidationCondition: plan.invalidationCondition || '',
     reason: plan.reason, entryPrice: plan.entryPrice ?? undefined, stopLoss: plan.stopLoss ?? undefined,
     takeProfit: plan.takeProfit ?? undefined } : emptyForm()
   files.value = plan ? plan.images.map(i => ({ uid: genFileId(), name: i.name, url: i.url, status: 'success', existingId: i.id })) : []
@@ -385,8 +385,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
           <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
           <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
           <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
-          <ElFormItem label="触发条件（选填）"><ElInput v-model="form.triggerCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="满足什么条件才考虑执行？"/></ElFormItem>
-          <ElFormItem label="失效条件（选填）"><ElInput v-model="form.invalidationCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="出现什么情况，这份计划不再成立？"/></ElFormItem>
+          <ElFormItem label="出场理由（选填）"><ElInput v-model="form.invalidationCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="什么情况下准备出场？"/></ElFormItem>
           <div class="plan-prices-heading"><h3>计划价位</h3><span>选填，填写单个价格</span><PriceOcr :disabled="planBusy || adjustmentsRef?.busy || ordersRef?.busy || leaving" target-label="原计划价位" @active-change="planOcrOpen = $event" @apply="row => { form.entryPrice = row.entryPrice; form.stopLoss = row.stopLoss ?? undefined; form.takeProfit = row.takeProfit ?? undefined; formRef?.clearValidate(['entryPrice', 'stopLoss', 'takeProfit']) }"/></div>
           <div class="plan-three-columns">
             <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
@@ -412,8 +411,7 @@ defineExpose({ showList: backToList, canLeave, openPlanById })
         <div class="plan-detail-section"><h3>行情截图 <span v-if="activePlan.images.length">{{ activePlan.images.length }} 张 · 点击放大</span></h3><div v-if="activePlan.images.length" class="plan-screenshot-grid" :class="{ single: activePlan.images.length === 1 }"><ElImage v-for="(image, index) in activePlan.images" :key="image.id" :src="image.url" :alt="image.name" fit="contain" :preview-src-list="activePlan.images.map(i => i.url)" :initial-index="index" preview-teleported :z-index="4000"><template #error><span class="plan-broken-image">截图无法读取</span></template></ElImage></div><p v-else class="plan-unfilled">未添加截图</p></div>
         <div class="plan-detail-section"><h3>关键结构</h3><p :class="{ 'plan-unfilled': !activePlan.keyStructure }">{{ activePlan.keyStructure || '未填写' }}</p></div>
         <div class="plan-detail-section"><h3>入场理由</h3><p :class="{ 'plan-unfilled': !activePlan.reason }">{{ activePlan.reason || '未填写' }}</p></div>
-        <div class="plan-detail-section"><h3>触发条件</h3><p>{{ activePlan.triggerCondition || '未填写' }}</p></div>
-        <div class="plan-detail-section"><h3>失效条件</h3><p>{{ activePlan.invalidationCondition || '未填写' }}</p></div>
+        <div class="plan-detail-section"><h3>出场理由</h3><p>{{ activePlan.invalidationCondition || '未填写' }}</p></div>
         <div class="plan-detail-section"><h3>计划价位</h3><div class="plan-three-columns plan-price-values"><div><span>计划入场价</span><strong>{{ activePlan.entryPrice ?? '—' }}</strong></div><div><span>止损价</span><strong>{{ activePlan.stopLoss ?? '—' }}</strong></div><div><span>止盈价</span><strong>{{ activePlan.takeProfit ?? '—' }}</strong></div></div></div>
         <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
         <p class="plan-footnote">记录入场前的思考，保留这次计划的依据。</p>
