@@ -266,7 +266,7 @@ defineExpose({ confirmDiscard })
 <template>
   <div class="linked-orders">
     <ElCard shadow="never" class="order-import-card">
-      <template #header><div class="plan-card-heading"><div><h2>导入订单</h2><span>本机识别 · 原图不保存</span></div><div class="order-actions"><ElButton type="primary" :disabled="locked" :loading="recognizing" @click="fileInput?.click()"><ImagePlus :size="15"/>选择截图</ElButton><ElButton plain :disabled="locked || !orders.length" @click="openComparison">对比订单截图</ElButton><ElButton text :disabled="locked" @click="addManual"><Plus :size="15"/>手动添加一行</ElButton></div></div></template>
+      <template #header><div class="plan-card-heading"><div><h2>导入订单</h2><span>本机识别 · 原图不保存</span></div><div class="order-actions"><ElButton type="primary" :disabled="locked" :loading="recognizing" @click="fileInput?.click()"><ImagePlus :size="15"/>选择截图</ElButton><ElButton plain :disabled="locked || !orders.length" @click="openComparison">更新订单</ElButton><ElButton text :disabled="locked" @click="addManual"><Plus :size="15"/>手动添加一行</ElButton></div></div></template>
       <input ref="fileInput" type="file" hidden accept="image/png,image/jpeg,image/webp" @change="chooseImage"/>
       <div class="order-import-intro"><p class="order-help">选择或粘贴一张完整宽度的浅色 MT5 挂单、持仓中或已平仓截图，建议每次截取一行。系统自动判断布局；识别草稿必须对照原图核对后保存。</p></div>
       <ElAlert v-if="error" :title="error" type="error" show-icon :closable="false"/>
