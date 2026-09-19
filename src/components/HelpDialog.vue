@@ -36,9 +36,15 @@ const sections = ref(['plans'])
           <ElText>事件显示发生时间、订单号和实际变化，不能编辑或删除；订单写入失败时不会单独留下事件。</ElText>
         </div>
       </ElCollapseItem>
+      <ElCollapseItem title="计划复盘" name="review">
+        <div class="page-stack">
+          <ElText>计划复盘记录整份计划是否成立、是否按计划执行，以及复盘总结和下次行动。每项都可留空，但至少填写一项才能保存；保存后可继续修改。</ElText>
+          <ElText>未保存修改在切换页签或离开计划前会提示。确认放弃会恢复最近一次读取或保存的内容；同一复盘在其他页面更新后，旧页面不会覆盖新内容。</ElText>
+        </div>
+      </ElCollapseItem>
       <ElCollapseItem title="导出与备份" name="export">
         <div class="page-stack">
-          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图、关联订单及人类可读的计划事件，不包含未保存草稿或 OCR 元数据。完整解压后可离线阅读。</ElText>
+          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图、关联订单、人类可读的计划事件及计划复盘，不包含未保存草稿、复盘修改或 OCR 元数据。完整解压后可离线阅读。</ElText>
           <ElAlert title="ZIP 是阅读资料，不能恢复数据库。升级或回退前，先停止所有使用数据库的服务，再完整备份 data 文件夹（含可能存在的 WAL / SHM）。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
