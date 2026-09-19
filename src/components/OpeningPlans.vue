@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  ElAlert, ElButton, ElCard, ElDescriptions, ElDescriptionsItem, ElDialog,
+  ElAlert, ElButton, ElCard, ElDatePicker, ElDescriptions, ElDescriptionsItem, ElDialog,
   ElEmpty, ElForm, ElFormItem, ElImage, ElImageViewer, ElInput, ElInputNumber,
   ElMessage, ElMessageBox, ElOption, ElPagination, ElRadioButton, ElRadioGroup,
   ElSelect, ElSkeleton, ElTable, ElTableColumn, ElTabs, ElTabPane, ElTag, ElUpload, genFileId,
@@ -18,6 +18,8 @@ import '../plans.css'
 
 interface PlanImage { id: string; name: string; mimeType: string; size: number; url: string }
 type CreatedAtOrder = 'ascending' | 'descending'
+type QuickDateFilter = 'today' | 'yesterday' | 'last_week' | 'last_month'
+type DateFilter = 'all' | QuickDateFilter | 'custom'
 type PlanSide = '' | 'buy' | 'sell'
 type MarketState = 'uptrend' | 'downtrend' | 'range' | 'uncertain'
 interface Plan {
@@ -41,6 +43,7 @@ const orderPanelRef = ref<InstanceType<typeof PlanOrders>>(), orderDirty = ref(f
 const reviewPanelRef = ref<InstanceType<typeof PlanReview>>(), reviewDirty = ref(false), reviewBusy = ref(false)
 const leaving = ref(false)
 const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('descending')
+const planDateRange = ref<[Date, Date] | null>(null)
 const files = ref<PlanUpload[]>([]), saving = ref(false), pageNumber = ref(1)
 const previewOpen = ref(false), previewIndex = ref(0)
 const selectedStatus = ref<'draft' | 'ready'>('draft'), initialSnapshot = ref('')
@@ -53,6 +56,10 @@ const markets: { value: MarketState; label: string }[] = [
   { value: 'uptrend', label: '上涨趋势' }, { value: 'downtrend', label: '下跌趋势' },
   { value: 'range', label: '震荡' }, { value: 'uncertain', label: '不确定' },
 ]
+const quickDateFilters: { key: QuickDateFilter; label: string }[] = [
+  { key: 'today', label: '今天' }, { key: 'yesterday', label: '昨天' },
+  { key: 'last_week', label: '上周' }, { key: 'last_month', label: '上月' },
+]
 const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const maxImageCount = 4, maxImageSize = 5 * 1024 * 1024
 const form = ref<PlanForm>(emptyForm())
@@ -61,9 +68,27 @@ const planBusy = computed(() => saving.value || !!changingStatusId.value || view
 const actionBusy = computed(() => planBusy.value || orderBusy.value || reviewBusy.value || leaving.value)
 const planDirty = computed(() => editing.value && snapshot() !== initialSnapshot.value)
 const requiredBasics = computed(() => ['ready', 'executed'].includes((mode.value === 'edit' ? activePlan.value?.status : selectedStatus.value) || 'draft'))
+const activeDateFilter = computed<DateFilter>(() => {
+  if (!planDateRange.value) return 'all'
+  const [selectedStart, selectedEnd] = planDateRange.value.map(date => date.getTime())
+  for (const option of quickDateFilters) {
+    const [start, end] = dateRangeFor(option.key)
+    if (start.getTime() === selectedStart && end.getTime() === selectedEnd) return option.key
+  }
+  return 'custom'
+})
+const hasDateFilter = computed(() => activeDateFilter.value !== 'all')
+const filteredPlans = computed(() => {
+  if (!planDateRange.value) return plans.value
+  const start = planDateRange.value[0].getTime(), end = planDateRange.value[1].getTime()
+  return plans.value.filter(plan => {
+    const createdAt = new Date(plan.createdAt).getTime()
+    return Number.isFinite(createdAt) && createdAt >= start && createdAt <= end
+  })
+})
 const sortedPlans = computed(() => {
   const direction = createdAtOrder.value === 'ascending' ? 1 : -1
-  return [...plans.value].sort((a, b) => {
+  return [...filteredPlans.value].sort((a, b) => {
     const timeDifference = Date.parse(a.createdAt) - Date.parse(b.createdAt)
     const idDifference = a.id === b.id ? 0 : a.id < b.id ? -1 : 1
     return direction * (timeDifference || idDifference)
@@ -92,6 +117,42 @@ function emptyForm(): PlanForm {
 function sideLabel(value: PlanSide) { return value === 'buy' ? '做多' : value === 'sell' ? '做空' : '未填写' }
 function marketLabel(value: MarketState) { return markets.find(m => m.value === value)?.label || '不确定' }
 function timestamp(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
+function startOfLocalDay(value: Date) { return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0) }
+function endOfLocalDay(value: Date) { return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999) }
+function dateRangeFor(filter: QuickDateFilter): [Date, Date] {
+  const today = startOfLocalDay(new Date())
+  if (filter === 'today') return [today, endOfLocalDay(today)]
+  if (filter === 'yesterday') {
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
+    return [yesterday, endOfLocalDay(yesterday)]
+  }
+  if (filter === 'last_week') {
+    const start = new Date(today)
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7) - 7)
+    const end = new Date(start); end.setDate(end.getDate() + 6)
+    return [start, endOfLocalDay(end)]
+  }
+  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const end = new Date(today.getFullYear(), today.getMonth(), 0)
+  return [start, endOfLocalDay(end)]
+}
+function selectQuickDateFilter(filter: QuickDateFilter) {
+  planDateRange.value = dateRangeFor(filter)
+  pageNumber.value = 1
+}
+function changePlanDateRange(value: [Date, Date] | null) {
+  if (!value?.length || value.some(date => !Number.isFinite(date.getTime()))) {
+    clearPlanDateFilter()
+    return
+  }
+  const ordered = [...value].sort((left, right) => left.getTime() - right.getTime())
+  planDateRange.value = [startOfLocalDay(ordered[0]), endOfLocalDay(ordered[1])]
+  pageNumber.value = 1
+}
+function clearPlanDateFilter() {
+  planDateRange.value = null
+  pageNumber.value = 1
+}
 function changeCreatedAtOrder({ prop, order }: { prop: string | null; order: CreatedAtOrder | null }) {
   if (prop !== 'createdAt') return
   const nextOrder = order ?? (createdAtOrder.value === 'descending' ? 'ascending' : 'descending')
@@ -331,21 +392,37 @@ defineExpose({ showList: backToList })
 
       <template v-if="mode === 'list'">
         <ElCard shadow="never" class="plan-list-card">
-          <template #header><div class="plan-card-heading"><h2>我的计划 <ElTag type="info" size="small" round>{{ plans.length }}</ElTag></h2><span>{{ createdAtOrder === 'descending' ? '最新优先' : '最早优先' }} · 点击创建时间切换</span></div></template>
+          <template #header><div class="plan-card-heading"><h2>我的计划 <ElTag type="info" size="small" round>{{ hasDateFilter ? `${filteredPlans.length} / ${plans.length}` : plans.length }}</ElTag></h2><span>{{ createdAtOrder === 'descending' ? '最新优先' : '最早优先' }} · 点击创建时间切换</span></div></template>
           <ElSkeleton v-if="loading" :rows="5" animated/>
           <template v-else-if="error"><ElEmpty description="暂时无法读取计划"><ElButton @click="loadPlans">重新加载</ElButton></ElEmpty></template>
           <template v-else-if="plans.length">
-            <ElTable ref="tableRef" :data="pagePlans" row-key="id" class="plan-table" :default-sort="{ prop: 'createdAt', order: createdAtOrder }" @sort-change="changeCreatedAtOrder" @row-click="viewPlan">
-              <ElTableColumn label="品种" min-width="190" align="left" header-align="left"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><strong>{{ row.symbol || '未填写品种' }}</strong></div></template></ElTableColumn>
-              <ElTableColumn label="方向" min-width="100" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
-              <ElTableColumn label="分析周期" min-width="110" align="center" header-align="center"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
-              <ElTableColumn prop="createdAt" label="创建时间" min-width="200" align="center" header-align="center" sortable="custom" :sort-orders="['descending', 'ascending']"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
-              <ElTableColumn label="状态" min-width="120" align="center" header-align="center"><template #default="{ row }"><PlanStatusMenu :status="row.status" :disabled="actionBusy || abandonDialog" :loading="changingStatusId === row.id" @change="chooseStatus(row as Plan, $event)"/></template></ElTableColumn>
-              <ElTableColumn label="操作" width="100" align="center" header-align="center"><template #default="{ row }">
-                <ElButton link type="primary" :disabled="actionBusy" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton>
-              </template></ElTableColumn>
-            </ElTable>
-            <ElPagination v-if="plans.length > 10" v-model:current-page="pageNumber" :total="plans.length" :page-size="10" layout="total, prev, pager, next" class="plan-pagination"/>
+            <div class="plan-date-filter">
+              <span class="plan-date-filter-label">创建日期</span>
+              <div class="plan-date-presets">
+                <ElButton size="small" :type="activeDateFilter === 'all' ? 'primary' : undefined" :plain="activeDateFilter !== 'all'" @click="clearPlanDateFilter">全部</ElButton>
+                <ElButton v-for="option in quickDateFilters" :key="option.key" size="small" :type="activeDateFilter === option.key ? 'primary' : undefined" :plain="activeDateFilter !== option.key" @click="selectQuickDateFilter(option.key)">{{ option.label }}</ElButton>
+              </div>
+              <div class="plan-date-custom">
+                <ElDatePicker v-model="planDateRange" type="daterange" unlink-panels clearable class="plan-date-picker"
+                  range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" format="YYYY-MM-DD" @change="changePlanDateRange"/>
+                <ElTag v-if="activeDateFilter === 'custom'" size="small" type="info" effect="plain">自定义</ElTag>
+              </div>
+              <span v-if="hasDateFilter" class="plan-filter-result">显示 {{ filteredPlans.length }} / {{ plans.length }} 份</span>
+            </div>
+            <template v-if="filteredPlans.length">
+              <ElTable ref="tableRef" :data="pagePlans" row-key="id" class="plan-table" :default-sort="{ prop: 'createdAt', order: createdAtOrder }" @sort-change="changeCreatedAtOrder" @row-click="viewPlan">
+                <ElTableColumn label="品种" min-width="190" align="left" header-align="left"><template #default="{ row }"><div class="plan-symbol"><span class="plan-symbol-icon"><ClipboardPenLine :size="19"/></span><strong>{{ row.symbol || '未填写品种' }}</strong></div></template></ElTableColumn>
+                <ElTableColumn label="方向" min-width="100" align="center" header-align="center"><template #default="{ row }"><ElTag :type="row.side === 'buy' ? 'success' : row.side === 'sell' ? 'danger' : 'info'" effect="light">{{ sideLabel(row.side) }}</ElTag></template></ElTableColumn>
+                <ElTableColumn label="分析周期" min-width="110" align="center" header-align="center"><template #default="{ row }">{{ row.timeframe || '未填写' }}</template></ElTableColumn>
+                <ElTableColumn prop="createdAt" label="创建时间" min-width="200" align="center" header-align="center" sortable="custom" :sort-orders="['descending', 'ascending']"><template #default="{ row }">{{ timestamp(row.createdAt) }}</template></ElTableColumn>
+                <ElTableColumn label="状态" min-width="120" align="center" header-align="center"><template #default="{ row }"><PlanStatusMenu :status="row.status" :disabled="actionBusy || abandonDialog" :loading="changingStatusId === row.id" @change="chooseStatus(row as Plan, $event)"/></template></ElTableColumn>
+                <ElTableColumn label="操作" width="100" align="center" header-align="center"><template #default="{ row }">
+                  <ElButton link type="primary" :disabled="actionBusy" :aria-label="`查看 ${row.symbol || '草稿'} 计划`" @click.stop="viewPlan(row as Plan)">查看<ArrowRight :size="13"/></ElButton>
+                </template></ElTableColumn>
+              </ElTable>
+              <ElPagination v-if="filteredPlans.length > 10" v-model:current-page="pageNumber" :total="filteredPlans.length" :page-size="10" layout="total, prev, pager, next" class="plan-pagination"/>
+            </template>
+            <ElEmpty v-else description="当前日期范围内没有计划" class="plan-filter-empty"><ElButton type="primary" plain @click="clearPlanDateFilter">清除筛选</ElButton></ElEmpty>
           </template>
           <ElEmpty v-else description="还没有交易计划"><template #image><ClipboardPenLine :size="64" stroke-width="1" class="plan-empty-icon"/></template><ElButton type="primary" @click="createPlan">创建第一份计划</ElButton></ElEmpty>
         </ElCard>

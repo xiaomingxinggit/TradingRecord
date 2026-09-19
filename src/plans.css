@@ -27,6 +27,14 @@
 .plan-flow-tabs .el-tabs__item:focus-visible { outline: 2px solid var(--el-color-primary-light-5); outline-offset: -2px; }
 .plan-list-card .el-card__body { padding: 0; }
 .plan-list-card .el-skeleton { padding: 24px; }
+.plan-date-filter { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--el-border-color-lighter); background: color-mix(in srgb, var(--el-fill-color-extra-light) 62%, transparent); }
+.plan-date-filter-label { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--el-text-color-regular); }
+.plan-date-presets { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.plan-date-presets .el-button { margin: 0; }
+.plan-date-custom { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.plan-date-picker { width: 260px !important; }
+.plan-filter-result { margin-left: auto; flex: 0 0 auto; font-size: 11px; color: var(--el-text-color-secondary); }
+.plan-filter-empty { padding-block: 30px; }
 .plan-table { --el-table-header-bg-color: var(--plan-table-bg, #fcfbfe); --el-table-header-text-color: var(--plan-secondary, #8b7d9b); --el-table-row-hover-bg-color: var(--plan-hover-bg, #faf7fe); }
 .plan-table .el-table__cell { padding: 18px 0; font-size: 12px; }
 .plan-table .cell { padding-inline: 16px; }
@@ -81,6 +89,12 @@
   .plan-flow-tabs>.el-tabs__header { padding: 4px; }
   .plan-flow-tabs .el-tabs__nav { width: max-content; min-width: 100%; }
   .plan-flow-tabs .el-tabs__item { min-width: 94px; height: 38px; padding-inline: 12px; font-size: 12px; }
+  .plan-date-filter { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  .plan-date-filter-label { width: 100%; }
+  .plan-date-presets { width: 100%; flex-wrap: wrap; }
+  .plan-date-custom { width: 100%; }
+  .plan-date-picker { flex: 1; width: 100% !important; min-width: 0; }
+  .plan-filter-result { width: 100%; margin-left: 0; }
   .plan-three-columns { grid-template-columns: 1fr; gap: 0; }
   .plan-card-heading { flex-wrap: wrap; gap: 10px; }
   .plan-card-heading>span { font-size: 10px; }
