@@ -362,31 +362,42 @@ defineExpose({ showList: backToList })
       <ElCard v-if="editing" shadow="never" class="plan-editor-card">
         <template #header><div class="plan-card-heading"><h2>{{ mode === 'new' ? '这次准备怎样交易？' : '补充或调整计划' }}</h2><span>{{ mode === 'new' ? '保存草稿可稍后补全' : '保存修改会保留当前状态' }}</span></div></template>
         <ElForm id="opening-plan-content" ref="formRef" :model="form" :rules="rules" label-position="top" :validate-on-rule-change="false" :disabled="actionBusy" scroll-to-error @submit.prevent.stop="savePlan()">
-          <div class="plan-three-columns">
-            <ElFormItem label="交易品种" prop="symbol"><SymbolSelect v-model="form.symbol" :disabled="saving" @pending-change="symbolPendingChanged"/></ElFormItem>
-            <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
-            <ElFormItem label="分析周期" prop="timeframe"><ElSelect v-model="form.timeframe" placeholder="选择周期" clearable><ElOption v-for="timeframe in timeframes" :key="timeframe" :label="timeframe" :value="timeframe"/></ElSelect></ElFormItem>
-          </div>
-          <ElFormItem label="行情截图">
-            <div class="plan-upload-area">
-              <ElUpload ref="uploadRef" v-model:file-list="files" :auto-upload="false" :limit="maxImageCount" multiple accept="image/png,image/jpeg,image/webp" list-type="picture-card" :on-change="imageChanged" :on-remove="imageRemoved" :on-preview="imagePreview" :on-exceed="() => imageError = '每份计划最多保存 4 张截图，请先移除多余图片。'">
-                <div class="plan-upload-trigger"><ImagePlus :size="25"/><span>添加截图</span></div>
-                <template #tip><div class="el-upload__tip">可以直接粘贴剪贴板图片（Ctrl / ⌘ + V）。PNG、JPEG 或 WEBP，每张 ≤ 5 MB，最多 4 张；保存计划时一并保存。</div></template>
-              </ElUpload>
-              <ElAlert v-if="imageError" :title="imageError" type="warning" show-icon :closable="false" class="plan-image-alert"/>
+          <div class="plan-form-section">
+            <div class="plan-section-heading"><span>01</span><div><h3>基础判断</h3><p>明确交易对象、方向和观察周期</p></div></div>
+            <div class="plan-three-columns">
+              <ElFormItem label="交易品种" prop="symbol"><SymbolSelect v-model="form.symbol" :disabled="saving" @pending-change="symbolPendingChanged"/></ElFormItem>
+              <ElFormItem label="方向" prop="side"><ElSelect v-model="form.side" placeholder="选择方向" clearable><ElOption label="做多" value="buy"/><ElOption label="做空" value="sell"/></ElSelect></ElFormItem>
+              <ElFormItem label="分析周期" prop="timeframe"><ElSelect v-model="form.timeframe" placeholder="选择周期" clearable><ElOption v-for="timeframe in timeframes" :key="timeframe" :label="timeframe" :value="timeframe"/></ElSelect></ElFormItem>
             </div>
-          </ElFormItem>
-          <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
-          <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
-          <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
-          <ElFormItem label="出场理由"><ElInput v-model="form.invalidationCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="什么情况下准备出场？"/></ElFormItem>
-          <div class="plan-prices-heading"><h3>计划价位</h3></div>
-          <div class="plan-three-columns">
-            <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
-            <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="选填"/></ElFormItem>
-            <ElFormItem label="止盈价" prop="takeProfit"><ElInputNumber v-model="form.takeProfit" :controls="false" placeholder="选填"/></ElFormItem>
           </div>
-          <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
+          <div class="plan-form-section">
+            <div class="plan-section-heading"><span>02</span><div><h3>行情截图</h3><p>保留制定计划时看到的市场结构</p></div></div>
+            <ElFormItem>
+              <div class="plan-upload-area">
+                <ElUpload ref="uploadRef" v-model:file-list="files" :auto-upload="false" :limit="maxImageCount" multiple accept="image/png,image/jpeg,image/webp" list-type="picture-card" :on-change="imageChanged" :on-remove="imageRemoved" :on-preview="imagePreview" :on-exceed="() => imageError = '每份计划最多保存 4 张截图，请先移除多余图片。'">
+                  <div class="plan-upload-trigger"><ImagePlus :size="25"/><span>添加截图</span></div>
+                  <template #tip><div class="el-upload__tip">可以直接粘贴剪贴板图片（Ctrl / ⌘ + V）。PNG、JPEG 或 WEBP，每张 ≤ 5 MB，最多 4 张；保存计划时一并保存。</div></template>
+                </ElUpload>
+                <ElAlert v-if="imageError" :title="imageError" type="warning" show-icon :closable="false" class="plan-image-alert"/>
+              </div>
+            </ElFormItem>
+          </div>
+          <div class="plan-form-section">
+            <div class="plan-section-heading"><span>03</span><div><h3>市场与理由</h3><p>写清触发依据和退出条件</p></div></div>
+            <ElFormItem label="市场状态" prop="marketState"><ElRadioGroup v-model="form.marketState"><ElRadioButton v-for="market in markets" :key="market.value" :value="market.value">{{ market.label }}</ElRadioButton></ElRadioGroup></ElFormItem>
+            <ElFormItem label="关键结构" prop="keyStructure"><ElInput v-model="form.keyStructure" maxlength="300" placeholder="一句话描述关键结构，也可以写「见图」" clearable/></ElFormItem>
+            <ElFormItem label="入场理由" prop="reason"><ElInput v-model="form.reason" type="textarea" :rows="4" maxlength="5000" show-word-limit placeholder="为什么准备入场？等什么信号？出现什么情况就放弃？"/></ElFormItem>
+            <ElFormItem label="出场理由"><ElInput v-model="form.invalidationCondition" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="什么情况下准备出场？"/></ElFormItem>
+          </div>
+          <div class="plan-form-section plan-form-section-last">
+            <div class="plan-section-heading"><span>04</span><div><h3>计划价位</h3><p>价格均可留空，填写后用于检查方向与收益风险</p></div></div>
+            <div class="plan-three-columns">
+              <ElFormItem label="计划入场价" prop="entryPrice"><ElInputNumber v-model="form.entryPrice" :controls="false" placeholder="选填"/></ElFormItem>
+              <ElFormItem label="止损价" prop="stopLoss"><ElInputNumber v-model="form.stopLoss" :controls="false" placeholder="选填"/></ElFormItem>
+              <ElFormItem label="止盈价" prop="takeProfit"><ElInputNumber v-model="form.takeProfit" :controls="false" placeholder="选填"/></ElFormItem>
+            </div>
+            <div v-if="planRatio !== null" class="plan-ratio"><span>计划收益 / 风险倍数</span><strong>{{ planRatio.toFixed(2) }} <small>倍</small></strong><span>按价格距离计算，未计交易成本</span></div>
+          </div>
         </ElForm>
       </ElCard>
 

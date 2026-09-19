@@ -50,12 +50,15 @@ onBeforeUnmount(() => { generation++; controller?.abort() })
     <ElAlert v-if="error" :title="error" type="error" show-icon :closable="false" class="event-error"/>
     <ElSkeleton v-if="loading" :rows="4" animated/>
     <ElTimeline v-else-if="events.length" class="plan-event-timeline">
-      <ElTimelineItem v-for="event in events" :key="event.id" :timestamp="timestamp(event.createdAt)" placement="top">
-        <div class="event-heading"><strong>{{ typeLabels[event.type] || '订单事件' }}</strong><ElTag size="small" effect="plain">订单 {{ event.detail.ticket || '未记录' }}</ElTag></div>
-        <div v-if="visibleChanges(event).length" class="event-changes">
-          <div v-for="change in visibleChanges(event)" :key="change.field"><span>{{ fieldLabels[change.field] }}</span><b>{{ display(change.field, change.from) }}</b><i>→</i><b>{{ display(change.field, change.to) }}</b></div>
+      <ElTimelineItem v-for="event in events" :key="event.id" :timestamp="timestamp(event.createdAt)" placement="top"
+        :type="event.type === 'order_created' ? 'success' : event.type === 'order_status_changed' ? 'warning' : 'primary'" hollow>
+        <div class="event-card">
+          <div class="event-heading"><ElTag size="small" effect="light" :type="event.type === 'order_created' ? 'success' : event.type === 'order_status_changed' ? 'warning' : 'primary'">{{ typeLabels[event.type] || '订单事件' }}</ElTag><span class="event-ticket">订单 {{ event.detail.ticket || '未记录' }}</span></div>
+          <div v-if="visibleChanges(event).length" class="event-changes">
+            <div v-for="change in visibleChanges(event)" :key="change.field"><span class="event-field">{{ fieldLabels[change.field] }}</span><div class="event-value-flow"><b>{{ display(change.field, change.from) }}</b><i>→</i><b>{{ display(change.field, change.to) }}</b></div></div>
+          </div>
+          <p v-else class="event-created">订单已创建并关联到当前计划。</p>
         </div>
-        <p v-else class="event-created">订单已创建并关联到当前计划。</p>
       </ElTimelineItem>
     </ElTimeline>
     <ElEmpty v-else description="还没有计划事件"/>
@@ -63,5 +66,5 @@ onBeforeUnmount(() => { generation++; controller?.abort() })
 </template>
 
 <style scoped>
-.event-error{margin-bottom:18px}.plan-event-timeline{padding:12px 8px 0}.event-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.event-heading strong{font-size:14px;color:var(--el-text-color-primary)}.event-changes{display:grid;gap:8px;margin-top:12px}.event-changes>div{display:grid;grid-template-columns:80px minmax(70px,1fr) 20px minmax(70px,1fr);gap:8px;align-items:center;font-size:12px;padding:9px 12px;background:var(--el-fill-color-light);border-radius:7px}.event-changes span{color:var(--el-text-color-secondary)}.event-changes b{font-weight:550;overflow-wrap:anywhere}.event-changes i{font-style:normal;color:var(--el-text-color-placeholder);text-align:center}.event-created{font-size:12px;color:var(--el-text-color-secondary);margin:10px 0 0}@media(max-width:560px){.event-changes>div{grid-template-columns:70px 1fr 16px 1fr;padding:8px}}
+.event-error{margin-bottom:18px}.plan-events-card :deep(.el-empty){padding-block:28px}.plan-events-card :deep(.el-skeleton){padding:4px 2px}.plan-event-timeline{padding:10px 4px 0 8px}.plan-event-timeline :deep(.el-timeline-item){padding-bottom:18px}.plan-event-timeline :deep(.el-timeline-item__timestamp){margin-bottom:7px;color:var(--el-text-color-secondary);font:500 11px/1.5 'Manrope Variable',sans-serif}.event-card{padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:color-mix(in srgb,var(--el-fill-color-extra-light) 55%,transparent)}.event-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.event-ticket{font:600 12px/1.4 'Manrope Variable',sans-serif;color:var(--el-text-color-regular)}.event-changes{display:grid;gap:8px;margin-top:12px}.event-changes>div{display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px;align-items:center;font-size:12px;padding:10px 12px;background:var(--el-bg-color);border:1px solid var(--el-border-color-extra-light);border-radius:8px}.event-field{color:var(--el-text-color-secondary)}.event-value-flow{display:grid;grid-template-columns:minmax(70px,1fr) 22px minmax(70px,1fr);gap:8px;align-items:center}.event-value-flow b{padding:5px 8px;font-weight:600;overflow-wrap:anywhere;border-radius:6px;background:var(--el-fill-color-extra-light)}.event-value-flow b:last-child{color:var(--el-color-primary);background:var(--el-color-primary-light-9)}.event-value-flow i{font-style:normal;color:var(--el-text-color-placeholder);text-align:center}.event-created{font-size:12px;color:var(--el-text-color-secondary);margin:12px 0 0;line-height:1.7}@media(max-width:560px){.plan-event-timeline{padding-left:2px}.event-card{padding:12px}.event-changes>div{grid-template-columns:1fr;gap:7px;padding:10px}.event-value-flow{grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr)}}
 </style>

@@ -145,27 +145,39 @@ defineExpose({ confirmDiscard })
     <ElSkeleton v-if="loading" :rows="6" animated/>
     <ElForm v-else :model="form" label-position="top" :disabled="disabled || busy || !ready" @submit.prevent="save">
       <div class="review-choices">
-        <ElFormItem label="计划结论">
-          <ElRadioGroup v-model="form.assessment" size="small">
-            <ElRadioButton v-for="option in assessmentOptions" :key="option.value" :value="option.value">{{ option.label }}</ElRadioButton>
-          </ElRadioGroup>
-        </ElFormItem>
-        <ElFormItem label="执行纪律">
-          <ElRadioGroup v-model="form.discipline" size="small">
-            <ElRadioButton v-for="option in disciplineOptions" :key="option.value" :value="option.value">{{ option.label }}</ElRadioButton>
-          </ElRadioGroup>
-        </ElFormItem>
+        <section class="review-choice-card">
+          <p>回看原先的判断是否经得住行情验证</p>
+          <ElFormItem label="计划结论">
+            <ElRadioGroup v-model="form.assessment" size="small">
+              <ElRadioButton v-for="option in assessmentOptions" :key="option.value" :value="option.value">{{ option.label }}</ElRadioButton>
+            </ElRadioGroup>
+          </ElFormItem>
+        </section>
+        <section class="review-choice-card">
+          <p>只评价是否执行自己的规则</p>
+          <ElFormItem label="执行纪律">
+            <ElRadioGroup v-model="form.discipline" size="small">
+              <ElRadioButton v-for="option in disciplineOptions" :key="option.value" :value="option.value">{{ option.label }}</ElRadioButton>
+            </ElRadioGroup>
+          </ElFormItem>
+        </section>
       </div>
-      <ElFormItem label="复盘总结">
-        <ElInput v-model="form.summary" type="textarea" :rows="6" maxlength="3000" show-word-limit
-          placeholder="这份计划的前提、触发条件和判断哪里成立，哪里需要修正？"/>
-      </ElFormItem>
-      <ElFormItem label="下次行动">
-        <ElInput v-model="form.nextAction" type="textarea" :rows="4" maxlength="2000" show-word-limit
-          placeholder="下一次遇到相似场景，准备继续、停止或调整什么？"/>
-      </ElFormItem>
+      <section class="review-writing-block">
+        <div class="review-writing-heading"><h3>复盘总结</h3><p>记录计划的前提、触发条件和判断中需要保留或修正的部分</p></div>
+        <ElFormItem>
+          <ElInput v-model="form.summary" type="textarea" :rows="6" maxlength="3000" show-word-limit
+            placeholder="这份计划的前提、触发条件和判断哪里成立，哪里需要修正？"/>
+        </ElFormItem>
+      </section>
+      <section class="review-writing-block">
+        <div class="review-writing-heading"><h3>下次行动</h3><p>把复盘结论落成下一次可以直接执行的动作</p></div>
+        <ElFormItem>
+          <ElInput v-model="form.nextAction" type="textarea" :rows="4" maxlength="2000" show-word-limit
+            placeholder="下一次遇到相似场景，准备继续、停止或调整什么？"/>
+        </ElFormItem>
+      </section>
       <div class="review-footer">
-        <span>{{ review ? `上次保存：${timestamp(review.updatedAt)}` : '尚未保存复盘' }}</span>
+        <span class="review-save-status"><i :class="{ saved: !!review }"/>{{ review ? `上次保存：${timestamp(review.updatedAt)}` : '尚未保存复盘' }}</span>
         <ElButton native-type="submit" type="primary" :loading="saving" :disabled="disabled || busy || !ready">
           <Save :size="15"/>保存复盘
         </ElButton>
@@ -175,5 +187,5 @@ defineExpose({ confirmDiscard })
 </template>
 
 <style scoped>
-.review-alert{margin-bottom:18px}.review-choices{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.review-choices :deep(.el-radio-group){display:flex;flex-wrap:wrap}.review-footer{display:flex;align-items:center;justify-content:flex-end;gap:16px;padding-top:4px}.review-footer span{font-size:12px;color:var(--el-text-color-secondary)}@media(max-width:760px){.review-choices{grid-template-columns:1fr}.review-footer{align-items:flex-end;flex-direction:column}.review-footer .el-button{width:100%}}
+.review-alert{margin-bottom:18px}.review-choices{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}.review-choice-card{min-width:0;padding:17px 18px 4px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:color-mix(in srgb,var(--el-fill-color-extra-light) 64%,transparent)}.review-choice-card>p{margin-bottom:13px;font-size:11px;line-height:1.6;color:var(--el-text-color-secondary)}.review-choice-card :deep(.el-form-item__label){font-weight:600;color:var(--el-text-color-primary)}.review-choice-card :deep(.el-radio-group){display:flex;flex-wrap:wrap}.review-choice-card :deep(.el-radio-button__inner){padding-inline:11px}.review-writing-block{padding:18px 18px 2px;margin-top:14px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-bg-color)}.review-writing-heading{margin-bottom:14px}.review-writing-heading h3{color:var(--el-text-color-primary);font-size:14px}.review-writing-heading p{margin-top:5px;font-size:11px;line-height:1.6;color:var(--el-text-color-secondary)}.review-writing-block :deep(.el-textarea__inner){line-height:1.75;background:var(--el-fill-color-blank)}.review-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:18px;padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-fill-color-extra-light)}.review-save-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--el-text-color-secondary)}.review-save-status i{width:7px;height:7px;border-radius:50%;background:var(--el-text-color-placeholder)}.review-save-status i.saved{background:var(--el-color-success)}@media(max-width:900px){.review-choices{grid-template-columns:1fr}}@media(max-width:760px){.review-choice-card{padding:15px 14px 2px}.review-writing-block{padding:16px 14px 2px}.review-footer{align-items:stretch;flex-direction:column}.review-footer .el-button{width:100%}}
 </style>
