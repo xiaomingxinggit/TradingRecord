@@ -33,6 +33,7 @@
 .plan-date-presets .el-button { margin: 0; }
 .plan-date-custom { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .plan-date-picker { width: 260px !important; }
+.plan-status-filter { width: 132px; flex: 0 0 auto; }
 .plan-filter-result { margin-left: auto; flex: 0 0 auto; font-size: 11px; color: var(--el-text-color-secondary); }
 .plan-filter-empty { padding-block: 30px; }
 .plan-table { --el-table-header-bg-color: var(--plan-table-bg, #fcfbfe); --el-table-header-text-color: var(--plan-secondary, #8b7d9b); --el-table-row-hover-bg-color: var(--plan-hover-bg, #faf7fe); }
@@ -94,6 +95,7 @@
   .plan-date-presets { width: 100%; flex-wrap: wrap; }
   .plan-date-custom { width: 100%; }
   .plan-date-picker { flex: 1; width: 100% !important; min-width: 0; }
+  .plan-status-filter { width: 100%; }
   .plan-filter-result { width: 100%; margin-left: 0; }
   .plan-three-columns { grid-template-columns: 1fr; gap: 0; }
   .plan-card-heading { flex-wrap: wrap; gap: 10px; }

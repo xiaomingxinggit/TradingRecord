@@ -13,7 +13,7 @@ import PlanOrders from './PlanOrders.vue'
 import PlanEvents from './PlanEvents.vue'
 import PlanReview from './PlanReview.vue'
 import SymbolSelect from './SymbolSelect.vue'
-import { statusInfo, type PlanStatus } from '../plan-status'
+import { planStatusOptions, statusInfo, type PlanStatus } from '../plan-status'
 import '../plans.css'
 
 interface PlanImage { id: string; name: string; mimeType: string; size: number; url: string }
@@ -43,7 +43,8 @@ const orderPanelRef = ref<InstanceType<typeof PlanOrders>>(), orderDirty = ref(f
 const reviewPanelRef = ref<InstanceType<typeof PlanReview>>(), reviewDirty = ref(false), reviewBusy = ref(false)
 const leaving = ref(false)
 const tableRef = ref<TableInstance>(), createdAtOrder = ref<CreatedAtOrder>('descending')
-const planDateRange = ref<[Date, Date] | null>(null)
+const planDateRange = ref<[Date, Date] | null>(dateRangeFor('today'))
+const selectedPlanStatus = ref<PlanStatus | 'all'>('all')
 const files = ref<PlanUpload[]>([]), saving = ref(false), pageNumber = ref(1)
 const previewOpen = ref(false), previewIndex = ref(0)
 const selectedStatus = ref<'draft' | 'ready'>('draft'), initialSnapshot = ref('')
@@ -77,13 +78,15 @@ const activeDateFilter = computed<DateFilter>(() => {
   }
   return 'custom'
 })
-const hasDateFilter = computed(() => activeDateFilter.value !== 'all')
+const hasPlanFilter = computed(() => activeDateFilter.value !== 'all' || selectedPlanStatus.value !== 'all')
 const filteredPlans = computed(() => {
-  if (!planDateRange.value) return plans.value
-  const start = planDateRange.value[0].getTime(), end = planDateRange.value[1].getTime()
   return plans.value.filter(plan => {
-    const createdAt = new Date(plan.createdAt).getTime()
-    return Number.isFinite(createdAt) && createdAt >= start && createdAt <= end
+    if (planDateRange.value) {
+      const start = planDateRange.value[0].getTime(), end = planDateRange.value[1].getTime()
+      const createdAt = new Date(plan.createdAt).getTime()
+      if (!Number.isFinite(createdAt) || createdAt < start || createdAt > end) return false
+    }
+    return selectedPlanStatus.value === 'all' || plan.status === selectedPlanStatus.value
   })
 })
 const sortedPlans = computed(() => {
@@ -151,6 +154,12 @@ function changePlanDateRange(value: [Date, Date] | null) {
 }
 function clearPlanDateFilter() {
   planDateRange.value = null
+  pageNumber.value = 1
+}
+function changePlanStatusFilter() { pageNumber.value = 1 }
+function clearPlanFilters() {
+  planDateRange.value = null
+  selectedPlanStatus.value = 'all'
   pageNumber.value = 1
 }
 function changeCreatedAtOrder({ prop, order }: { prop: string | null; order: CreatedAtOrder | null }) {
@@ -392,7 +401,7 @@ defineExpose({ showList: backToList })
 
       <template v-if="mode === 'list'">
         <ElCard shadow="never" class="plan-list-card">
-          <template #header><div class="plan-card-heading"><h2>我的计划 <ElTag type="info" size="small" round>{{ hasDateFilter ? `${filteredPlans.length} / ${plans.length}` : plans.length }}</ElTag></h2><span>{{ createdAtOrder === 'descending' ? '最新优先' : '最早优先' }} · 点击创建时间切换</span></div></template>
+          <template #header><div class="plan-card-heading"><h2>我的计划 <ElTag type="info" size="small" round>{{ hasPlanFilter ? `${filteredPlans.length} / ${plans.length}` : plans.length }}</ElTag></h2><span>{{ createdAtOrder === 'descending' ? '最新优先' : '最早优先' }} · 点击创建时间切换</span></div></template>
           <ElSkeleton v-if="loading" :rows="5" animated/>
           <template v-else-if="error"><ElEmpty description="暂时无法读取计划"><ElButton @click="loadPlans">重新加载</ElButton></ElEmpty></template>
           <template v-else-if="plans.length">
@@ -407,7 +416,12 @@ defineExpose({ showList: backToList })
                   range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" format="YYYY-MM-DD" @change="changePlanDateRange"/>
                 <ElTag v-if="activeDateFilter === 'custom'" size="small" type="info" effect="plain">自定义</ElTag>
               </div>
-              <span v-if="hasDateFilter" class="plan-filter-result">显示 {{ filteredPlans.length }} / {{ plans.length }} 份</span>
+              <span class="plan-date-filter-label">状态</span>
+              <ElSelect v-model="selectedPlanStatus" class="plan-status-filter" aria-label="按计划状态筛选" @change="changePlanStatusFilter">
+                <ElOption label="全部状态" value="all"/>
+                <ElOption v-for="option in planStatusOptions" :key="option.value" :label="option.label" :value="option.value"/>
+              </ElSelect>
+              <span v-if="hasPlanFilter" class="plan-filter-result">显示 {{ filteredPlans.length }} / {{ plans.length }} 份</span>
             </div>
             <template v-if="filteredPlans.length">
               <ElTable ref="tableRef" :data="pagePlans" row-key="id" class="plan-table" :default-sort="{ prop: 'createdAt', order: createdAtOrder }" @sort-change="changeCreatedAtOrder" @row-click="viewPlan">
@@ -422,7 +436,7 @@ defineExpose({ showList: backToList })
               </ElTable>
               <ElPagination v-if="filteredPlans.length > 10" v-model:current-page="pageNumber" :total="filteredPlans.length" :page-size="10" layout="total, prev, pager, next" class="plan-pagination"/>
             </template>
-            <ElEmpty v-else description="当前日期范围内没有计划" class="plan-filter-empty"><ElButton type="primary" plain @click="clearPlanDateFilter">清除筛选</ElButton></ElEmpty>
+            <ElEmpty v-else description="当前筛选条件下没有计划" class="plan-filter-empty"><ElButton type="primary" plain @click="clearPlanFilters">清除筛选</ElButton></ElEmpty>
           </template>
           <ElEmpty v-else description="还没有交易计划"><template #image><ClipboardPenLine :size="64" stroke-width="1" class="plan-empty-icon"/></template><ElButton type="primary" @click="createPlan">创建第一份计划</ElButton></ElEmpty>
         </ElCard>
