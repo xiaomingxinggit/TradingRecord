@@ -35,6 +35,42 @@ const LABELS = {
 
 const emptyReading = (confidence = 0) => ({ text: '', confidence, hasInk: false, inkFraction: 0 });
 
+function selectedRowPixels(rgb, width, height) {
+  // Only the short, full-width blue selection used by light MT5 tables is
+  // supported here. A dark image alone is not evidence of reversed text.
+  if (width < 1000 || height > Math.max(32, width * 0.02)) return null;
+  const strips = Array.from({ length: 8 }, () => ({ total: 0, blue: 0, light: 0 }));
+  const backgroundReds = new Uint32Array(256);
+  let blueCount = 0;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const offset = (y * width + x) * 3;
+    const r = rgb[offset], g = rgb[offset + 1], b = rgb[offset + 2];
+    const strip = strips[Math.min(7, Math.floor(x * 8 / width))];
+    strip.total++;
+    if (r <= 100 && g <= 180 && b >= 120 && b - r >= 70 && b - g >= 20) {
+      strip.blue++; blueCount++; backgroundReds[r]++;
+    }
+    if (Math.min(r, g, b) >= 210 && Math.max(r, g, b) - Math.min(r, g, b) <= 45) strip.light++;
+  }
+  // Require blue across the row, plus light foreground in several regions.
+  // Local red SL cells, gray alternating rows and neutral headers cannot
+  // trigger this path; the existing header/layout checks still run afterward.
+  if (blueCount < width * height * 0.7 || strips.some(strip => strip.blue < strip.total * 0.6)
+    || strips.filter(strip => strip.light >= strip.total * 0.002).length < 4) return null;
+  let backgroundRed = 0;
+  for (let r = 1; r < backgroundReds.length; r++) {
+    if (backgroundReds[r] > backgroundReds[backgroundRed]) backgroundRed = r;
+  }
+  const pixels = Buffer.alloc(width * height);
+  // Blue has little red, while the selected white glyphs have plenty. Invert
+  // that contrast with the dominant background mapped to white. Inverting
+  // ordinary luminance leaves blue too dark for the <150 ink checks below.
+  for (let i = 0; i < pixels.length; i++) {
+    pixels[i] = Math.round(255 * (1 - Math.max(0, rgb[i * 3] - backgroundRed) / (255 - backgroundRed)));
+  }
+  return pixels;
+}
+
 function safeRect(left, top, rectWidth, rectHeight, imageWidth, imageHeight) {
   const values = [left, top, rectWidth, rectHeight, imageWidth, imageHeight];
   if (!values.every(Number.isFinite) || imageWidth < 1 || imageHeight < 1 || rectWidth <= 0 || rectHeight <= 0
@@ -406,11 +442,14 @@ const marketType = value => /^(?:buy|sell)$/.test(normalizedType(value));
 export async function recognizeOrders(buffer) {
   let pixels, info;
   try {
-    ({ data: pixels, info } = await sharp(buffer, { limitInputPixels: 12_000_000 })
-      .flatten({ background: '#fff' }).greyscale().raw().toBuffer({ resolveWithObject: true }));
+    const input = sharp(buffer, { limitInputPixels: 12_000_000 }).flatten({ background: '#fff' });
+    const decoded = await input.clone().toColourspace('srgb').removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    info = decoded.info;
+    pixels = selectedRowPixels(decoded.data, info.width, info.height)
+      ?? await input.greyscale().raw().toBuffer();
   } catch { throw fail('图片无法读取，请使用 PNG、JPEG 或 WEBP 截图。'); }
   const { width, height } = info;
-  if (width < 1000 || width > 6000 || height < 12 || height > 1000) throw fail('请截取完整宽度的浅色交易表格，保持支持的固定列布局。');
+  if (width < 1000 || width > 6000 || height < 12 || height > 1000) throw fail('请截取完整宽度的浅色 MT5 表格或整行蓝色选中的单行记录，保持支持的固定列布局。');
   const worker = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
   try {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
@@ -421,7 +460,7 @@ export async function recognizeOrders(buffer) {
     if (!selected.rows.length) throw fail('没有找到可识别的交易行，请使用清晰的完整宽度截图。');
     const ambiguous = selected.score < 65 || selected.score - runnerUp.score < 12;
     const warnings = [
-      '系统已自动比较挂单、持仓中和已平仓三套固定浅色 MT5 布局。识别结果仅为草稿，保存前请逐项对照原图。',
+      '系统已自动比较挂单、持仓中和已平仓三套固定 MT5 布局，支持浅色表格及整行蓝色选中的单行截图。识别结果仅为草稿，保存前请逐项对照原图。',
       `布局判断：${MODE_LABELS[selected.mode]}得分 ${selected.score}，其次${MODE_LABELS[runnerUp.mode]}得分 ${runnerUp.score}；依据为类型、时间数量、订单号、交易量及末列结构信号。`,
       ...selected.warnings,
     ];

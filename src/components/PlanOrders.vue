@@ -297,7 +297,7 @@ defineExpose({ confirmDiscard })
     <ElCard shadow="never" class="order-import-card">
       <template #header><div class="plan-card-heading"><div><h2>导入订单</h2><span>本机识别 · 原图不保存</span></div><div class="order-actions"><ElButton type="primary" :disabled="locked" :loading="recognizing" @click="fileInput?.click()"><ImagePlus :size="15"/>选择截图</ElButton><ElButton plain :disabled="locked || !hasUpdatableOrders" @click="openComparison">更新订单</ElButton><ElButton text :disabled="locked" @click="addManual"><Plus :size="15"/>手动添加一行</ElButton></div></div></template>
       <input ref="fileInput" type="file" hidden accept="image/png,image/jpeg,image/webp" @change="chooseImage"/>
-      <div class="order-import-intro"><p class="order-help">选择或粘贴一张完整宽度的浅色 MT5 挂单、持仓中或已平仓截图，建议每次截取一行。系统自动判断布局；识别草稿必须对照原图核对后保存。</p></div>
+      <div class="order-import-intro"><p class="order-help">选择或粘贴一张完整宽度的 MT5 挂单、持仓中或已平仓截图，支持浅色表格及整行蓝色选中的单行截图，建议每次截取一行。系统自动判断布局；识别草稿必须对照原图核对后保存。</p></div>
       <ElAlert v-if="error" :title="error" type="error" show-icon :closable="false"/>
       <ElImage v-if="preview" :src="preview" :preview-src-list="[preview]" preview-teleported fit="contain" class="order-preview"/>
       <ElAlert v-for="(warning, index) in warnings" :key="index" :title="warning" type="warning" :closable="false" class="order-warning"/>
@@ -370,7 +370,7 @@ defineExpose({ confirmDiscard })
 
     <ElDialog v-model="compareDialog" class="order-compare-dialog" title="更新订单" width="min(720px, calc(100vw - 32px))" :before-close="closeComparison" :close-on-click-modal="false" :close-on-press-escape="!busy">
       <div class="order-compare-content">
-        <p class="order-help">选择或粘贴一张完整宽度的单行订单截图。系统只用订单号匹配当前计划，并比较手数、止损、止盈；不会修改状态或其他字段。</p>
+        <p class="order-help">选择或粘贴一张完整宽度的单行 MT5 订单截图，支持浅色表格及整行蓝色选中。系统自动判断挂单、持仓中或已平仓布局，只用订单号匹配当前计划，并比较手数、止损、止盈；不会修改状态或其他字段。</p>
         <input ref="compareFileInput" type="file" hidden accept="image/png,image/jpeg,image/webp" @change="chooseComparisonImage"/>
         <div class="compare-picker"><ElButton :disabled="locked || !!comparePreview" :loading="compareRecognizing" @click="compareFileInput?.click()"><ImagePlus :size="15"/>选择对比截图</ElButton></div>
         <ElAlert v-if="compareError" :title="compareError" type="error" show-icon :closable="false" class="compare-alert"/>
