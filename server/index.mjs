@@ -30,6 +30,7 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
     next();
   });
   mountOrderOcr(app);
+  app.get('/api/overview', (_req, res) => res.json(app.locals.store.overview.get()));
   app.use('/api/plans/:planId/orders', createPlanOrdersRouter(app.locals.store.orders));
   app.use('/api/plans/:planId/events', createPlanEventsRouter(app.locals.store.events));
   app.use('/api/plans/:planId/review', createPlanReviewsRouter(app.locals.store.reviews));

@@ -2,12 +2,19 @@
 import { ref } from 'vue'
 import { ElAlert, ElButton, ElCollapse, ElCollapseItem, ElDialog, ElText } from 'element-plus'
 const visible = defineModel<boolean>({ default: false })
-const sections = ref(['plans'])
+const sections = ref(['overview'])
 </script>
 
 <template>
   <ElDialog v-model="visible" title="使用说明" width="min(680px, calc(100vw - 32px))" align-center>
     <ElCollapse v-model="sections">
+      <ElCollapseItem title="数据概览" name="overview">
+        <div class="page-stack">
+          <ElText>工作空间默认打开数据概览，位于交易计划上方。看板汇总本机全部已保存计划、关联订单、已平仓订单、计划事件和复盘，不受计划列表筛选影响；进入页面会读取最新数据，也可手动刷新。</ElText>
+          <ElText>状态分布按当前状态统计；常用品种按计划数量展示前 5，占比以全部计划为分母，忽略品种首尾空格并按大写归类。至少保存一项复盘内容即计为已完成，复盘覆盖率的分母包括草稿和未执行计划。</ElText>
+          <ElText>近期动态展示最近有活动的 6 份计划，包含计划、订单、事件或复盘的更新；点击“查看”进入对应计划。未保存输入和识别草稿不计入统计，看板不计算账户收益。</ElText>
+        </div>
+      </ElCollapseItem>
       <ElCollapseItem title="填写交易计划" name="plans">
         <div class="page-stack">
           <ElText>记录品种、方向、分析周期、市场状态、关键结构、入场理由和出场理由。品种默认 XAUUSD，可搜索或自定义；输入后选择候选或按 Enter 确认。出场理由可以留空。</ElText>

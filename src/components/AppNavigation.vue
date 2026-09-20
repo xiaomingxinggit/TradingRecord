@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { ElButton, ElCard, ElDivider, ElIcon, ElLink, ElMenu, ElMenuItem, ElScrollbar, ElText } from 'element-plus'
-import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, ShieldCheck } from 'lucide-vue-next'
+import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, LayoutDashboard, ShieldCheck } from 'lucide-vue-next'
 
-defineProps<{ exporting: boolean }>()
-const emit = defineEmits<{ plans: []; export: []; help: [] }>()
+defineProps<{ exporting: boolean; activeView: 'overview' | 'plans'; navigating: boolean }>()
+const emit = defineEmits<{ overview: []; plans: []; export: []; help: [] }>()
 </script>
 
 <template>
   <div class="navigation-frame">
-    <div class="brand-area"><ElLink :underline="'never'" class="brand" @click="emit('plans')"><ElIcon class="brand-mark" :size="24"><ChartNoAxesColumnIncreasing/></ElIcon><span>TradeLog</span></ElLink><ElText type="info" size="small">记录每一份交易计划</ElText></div>
+    <div class="brand-area"><ElLink :underline="'never'" class="brand" @click="emit('overview')"><ElIcon class="brand-mark" :size="24"><ChartNoAxesColumnIncreasing/></ElIcon><span>TradeLog</span></ElLink><ElText type="info" size="small">记录每一份交易计划</ElText></div>
     <ElScrollbar class="navigation-scroll">
       <div class="navigation-content">
         <ElText tag="p" type="info" size="small" class="nav-label">工作空间</ElText>
-        <ElMenu default-active="plans" class="workspace-menu" @select="emit('plans')"><ElMenuItem index="plans"><ElIcon><ClipboardPenLine/></ElIcon><span>交易计划</span></ElMenuItem></ElMenu>
+        <ElMenu :key="`${activeView}-${navigating}`" :default-active="activeView" class="workspace-menu" @select="value => value === 'overview' ? emit('overview') : emit('plans')">
+          <ElMenuItem index="overview" :disabled="navigating"><ElIcon><LayoutDashboard/></ElIcon><span>数据概览</span></ElMenuItem>
+          <ElMenuItem index="plans" :disabled="navigating"><ElIcon><ClipboardPenLine/></ElIcon><span>交易计划</span></ElMenuItem>
+        </ElMenu>
         <ElDivider/>
         <ElText tag="p" type="info" size="small" class="nav-label">数据管理</ElText>
         <ElButton text class="export-button" :loading="exporting" :disabled="exporting" @click="emit('export')"><ArrowDownToLine v-if="!exporting" :size="19"/><span>{{ exporting ? '正在导出…' : '导出数据' }}</span></ElButton>

@@ -380,7 +380,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
 }
 onMounted(() => { void loadPlans(); window.addEventListener('paste', pasteImages); window.addEventListener('beforeunload', beforeUnload) })
 onBeforeUnmount(() => { releasePreviews(); window.removeEventListener('paste', pasteImages); window.removeEventListener('beforeunload', beforeUnload) })
-defineExpose({ showList: backToList })
+defineExpose({ showList: backToList, openPlan: viewPlan })
 </script>
 
 <template>
