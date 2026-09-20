@@ -11,6 +11,7 @@ import { emptyOrder, orderRiskReward, orderStatusLabels, type OcrOrderRow, type 
 interface DraftRow { id: string; fields: OrderFields; warnings: string[]; raw?: Record<string, string> }
 interface OcrResult { rows: OcrOrderRow[]; detectedStatus: OrderStatus; ambiguous: boolean; warnings: string[] }
 type CompareField = 'volume' | 'reportedSL' | 'reportedTP'
+type UpdateEmotion = 'calm' | 'confident' | 'hesitant' | 'nervous' | 'fearful' | 'greedy' | 'impulsive'
 interface CompareChange { field: CompareField; from: number | null; to: number }
 interface ComparisonDraft { order: RecordedOrder; changes: CompareChange[] }
 const props = defineProps<{ planId: string; active: boolean; disabled?: boolean }>()
@@ -23,6 +24,7 @@ const lockingId = ref('')
 const error = ref(''), warnings = ref<string[]>([]), preview = ref('')
 const compareDialog = ref(false), compareRecognizing = ref(false), compareSaving = ref(false)
 const comparePreview = ref(''), compareError = ref(''), compareWarnings = ref<string[]>([]), comparison = ref<ComparisonDraft | null>(null)
+const compareReason = ref(''), compareEmotion = ref<UpdateEmotion | ''>('')
 const fileInput = ref<HTMLInputElement>(), compareFileInput = ref<HTMLInputElement>()
 let generation = 0, readController: AbortController | undefined, ocrController: AbortController | undefined
 let compareController: AbortController | undefined, writeController: AbortController | undefined
@@ -34,6 +36,13 @@ const hasUpdatableOrders = computed(() => orders.value.some(order => !order.lock
 const fieldKeys: (keyof OrderFields)[] = ['ticket', 'status', 'symbol', 'side', 'volume', 'pendingTime', 'pendingPrice',
   'openTime', 'openPrice', 'closeTime', 'closePrice', 'reportedSL', 'reportedTP', 'reportedProfit']
 const compareLabels: Record<CompareField, string> = { volume: '手数', reportedSL: '止损', reportedTP: '止盈' }
+const emotionOptions: { value: UpdateEmotion; label: string }[] = [
+  { value: 'calm', label: '平静' }, { value: 'confident', label: '自信' }, { value: 'hesitant', label: '犹豫' },
+  { value: 'nervous', label: '紧张' }, { value: 'fearful', label: '恐惧' }, { value: 'greedy', label: '贪婪' },
+  { value: 'impulsive', label: '冲动' },
+]
+const canSaveComparison = computed(() => !!comparison.value?.changes.length
+  && !!compareReason.value.trim() && compareReason.value.trim().length <= 500 && !!compareEmotion.value)
 const statusMenuOptions: { value: OrderStatus; description: string }[] = [
   { value: 'pending', description: '等待成交' },
   { value: 'open', description: '订单已成交' },
@@ -51,6 +60,7 @@ function resetPreview() { if (preview.value) URL.revokeObjectURL(preview.value);
 function resetComparison() {
   if (comparePreview.value) URL.revokeObjectURL(comparePreview.value)
   comparePreview.value = ''; compareWarnings.value = []; compareError.value = ''; comparison.value = null
+  compareReason.value = ''; compareEmotion.value = ''
 }
 function timestamp(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
 function sideLabel(value: string) { return value === 'buy' ? '做多' : '做空' }
@@ -153,6 +163,7 @@ async function recognizeComparison(file?: File) {
     compareError.value = '请选择一张不超过 5 MB 的 PNG、JPEG 或 WEBP 图片。'; return
   }
   if (comparePreview.value || comparison.value) { compareError.value = '请先取消当前对比，再选择另一张截图。'; return }
+  compareReason.value = ''; compareEmotion.value = ''
   comparePreview.value = URL.createObjectURL(file); compareError.value = ''; compareWarnings.value = []
   const version = generation, controller = new AbortController(); compareController = controller; compareRecognizing.value = true
   try {
@@ -181,6 +192,10 @@ async function recognizeComparison(file?: File) {
 function chooseComparisonImage(event: Event) { const input = event.target as HTMLInputElement; void recognizeComparison(input.files?.[0]); input.value = '' }
 async function saveComparison() {
   if (!comparison.value?.changes.length || locked.value) return
+  const reason = compareReason.value.trim()
+  if (!reason) { compareError.value = '请填写本次修改原因。'; return }
+  if (reason.length > 500) { compareError.value = '修改原因不能超过 500 字。'; return }
+  if (!compareEmotion.value) { compareError.value = '请选择当时情绪。'; return }
   if (comparison.value.order.lockedAt || orders.value.find(order => order.id === comparison.value?.order.id)?.lockedAt) {
     compareError.value = '订单已锁定，无法再修改手数、止损和止盈。'; return
   }
@@ -190,7 +205,7 @@ async function saveComparison() {
     const fields = Object.fromEntries(draft.changes.map(change => [change.field, change.to]))
     const result = await json<{ order: RecordedOrder; changed: boolean }>(await fetch(`/api/plans/${encodeURIComponent(props.planId)}/orders/${encodeURIComponent(draft.order.id)}/compared-fields`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: draft.order.updatedAt, ...fields }), signal: controller.signal,
+      body: JSON.stringify({ expectedUpdatedAt: draft.order.updatedAt, reason, emotion: compareEmotion.value, ...fields }), signal: controller.signal,
     }))
     if (version !== generation) return
     orders.value = orders.value.map(order => order.id === result.order.id ? result.order : order)
@@ -383,10 +398,25 @@ defineExpose({ confirmDiscard })
             <ElTableColumn label="当前记录"><template #default="{ row }">{{ displayNumber(row.from) }}</template></ElTableColumn>
             <ElTableColumn label="截图识别"><template #default="{ row }">{{ displayNumber(row.to) }}</template></ElTableColumn>
           </ElTable>
+          <div v-if="comparison.changes.length" class="compare-context">
+            <ElForm label-position="top">
+              <ElFormItem label="修改原因" required>
+                <ElInput v-model="compareReason" type="textarea" :rows="3" maxlength="500" show-word-limit resize="vertical" placeholder="记录本次调整的原因" :disabled="compareSaving"/>
+              </ElFormItem>
+              <ElFormItem label="当时情绪" required>
+                <div class="emotion-options" role="radiogroup" aria-label="当时情绪">
+                  <ElButton v-for="option in emotionOptions" :key="option.value" size="small"
+                    :type="compareEmotion === option.value ? 'primary' : 'default'" :plain="compareEmotion !== option.value"
+                    :disabled="compareSaving" role="radio" :aria-checked="compareEmotion === option.value"
+                    @click="compareEmotion = option.value">{{ option.label }}</ElButton>
+                </div>
+              </ElFormItem>
+            </ElForm>
+          </div>
           <ElAlert v-else title="未发现可更新变化" type="info" show-icon :closable="false"/>
         </section>
       </div>
-      <template #footer><ElButton :disabled="compareRecognizing || compareSaving" @click="closeComparison()">取消</ElButton><ElButton type="primary" :loading="compareSaving" :disabled="locked || !!comparison?.order.lockedAt || !comparison?.changes.length" @click="saveComparison">确认更新</ElButton></template>
+      <template #footer><ElButton :disabled="compareRecognizing || compareSaving" @click="closeComparison()">取消</ElButton><ElButton type="primary" :loading="compareSaving" :disabled="locked || !!comparison?.order.lockedAt || !canSaveComparison" @click="saveComparison">确认更新</ElButton></template>
     </ElDialog>
   </div>
 </template>
@@ -394,6 +424,7 @@ defineExpose({ confirmDiscard })
 <style scoped>
 .linked-orders{min-width:0}.order-ratio{white-space:nowrap}.order-status-tag.is-locked{cursor:default}.order-status-tag.is-locked:hover{filter:none;box-shadow:none}.order-lock-tag :deep(.el-tag__content){display:flex;align-items:center;gap:5px}.order-lock-pending{font-size:12px;color:var(--el-text-color-placeholder)}
 .order-compare-content{display:grid;gap:14px}.order-compare-content .compare-alert,.order-compare-content .order-preview,.order-compare-content .order-warning,.order-compare-content .compare-result{margin-top:0;margin-bottom:0}.compare-picker{display:flex;align-items:center}.compare-picker .el-button{margin:0}.compare-warnings{display:grid;gap:10px}.compare-warnings .order-warning{margin:0}
+.compare-context{padding-top:2px}.compare-context :deep(.el-form-item:last-child){margin-bottom:0}.emotion-options{display:flex;gap:8px;flex-wrap:wrap}.emotion-options .el-button{margin:0}
 .linked-orders{display:grid;gap:18px}.order-import-card{border-top:3px solid var(--el-color-primary-light-7)}.order-help{font-size:12px;line-height:1.8;color:var(--el-text-color-secondary);overflow-wrap:anywhere}.order-import-intro{padding:12px 14px;border-left:3px solid var(--el-color-primary-light-5);border-radius:0 8px 8px 0;background:var(--el-color-primary-light-9)}.order-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.order-actions .el-button{margin:0}.order-preview{display:block;width:100%;max-height:320px;margin:16px 0;padding:8px;background:var(--el-fill-color-extra-light);border:1px solid var(--el-border-color-lighter);border-radius:10px}.order-warning{margin-top:10px}.order-drafts{margin-top:20px;padding-top:20px;border-top:1px solid var(--el-border-color-lighter)}.order-draft-table{--el-table-header-bg-color:var(--el-fill-color-extra-light);border-radius:8px;overflow:hidden}.order-draft-form{margin-top:18px;padding:18px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:color-mix(in srgb,var(--el-fill-color-extra-light) 64%,transparent)}.order-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 16px;margin-top:14px}.order-fields-primary{grid-template-columns:repeat(5,minmax(0,1fr))}.order-fields .el-input-number{width:100%}.order-raw{margin-top:10px;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--el-text-color-secondary);font-size:12px;background:var(--el-fill-color-extra-light);border-radius:8px}.order-list-card :deep(.el-card__body){padding:0}.order-list-card :deep(.el-empty){padding:24px}.order-list-table{width:100%;--el-table-header-bg-color:var(--plan-table-bg,var(--el-fill-color-extra-light));--el-table-row-hover-bg-color:var(--el-fill-color-extra-light)}.order-list-table :deep(.el-table__cell){padding-block:12px}.order-ticket{font:650 12px/1.4 'Manrope Variable',sans-serif;color:var(--el-text-color-primary);letter-spacing:.2px}.order-status-tag{cursor:pointer;font-weight:550}.compare-alert{margin-top:14px}.compare-result{display:grid;gap:14px;margin-top:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-fill-color-extra-light)}.compare-order{display:flex;gap:12px;align-items:center;font-size:13px}.compare-order span{color:var(--el-text-color-secondary)}.compare-order strong{font-family:'Manrope Variable',sans-serif}summary{width:max-content;max-width:100%;padding:8px 0;cursor:pointer;color:var(--el-color-primary);font-size:13px;font-weight:550}details+details{margin-top:6px}@media(max-width:900px){.order-fields-primary,.order-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.plan-card-heading{align-items:flex-start;flex-direction:column}.order-actions{width:100%}}@media(max-width:560px){.order-fields-primary,.order-fields{grid-template-columns:1fr}.order-actions .el-button{flex:1}.order-actions .el-button:first-child{flex-basis:100%}.order-draft-form{padding:14px}}
 .order-list-heading h2{gap:9px}.order-count-tag{--el-tag-bg-color:var(--el-color-primary-light-9);--el-tag-border-color:var(--el-color-primary-light-7);--el-tag-text-color:var(--el-color-primary);font-weight:600}.order-list-card{overflow:hidden}.order-list-table{--el-table-header-bg-color:var(--el-fill-color-extra-light);--el-table-header-text-color:var(--el-text-color-secondary);--el-table-border-color:var(--el-border-color-extra-light);--el-table-row-hover-bg-color:var(--el-color-primary-light-9)}.order-list-table :deep(.cell){padding-inline:14px}.order-list-table :deep(.el-table__header th.el-table__cell){padding-block:11px;font-size:11px;font-weight:600;letter-spacing:.35px}.order-list-table :deep(.el-table__body td.el-table__cell){height:58px;padding-block:12px;border-bottom-color:var(--el-border-color-extra-light)}.order-list-table :deep(.el-table__row:last-child td.el-table__cell){border-bottom:0}.order-list-table :deep(.el-table__inner-wrapper::before){background:var(--el-border-color-extra-light)}.saved-order-ticket{display:flex;align-items:center;gap:9px;min-width:0}.saved-order-ticket>span{width:29px;height:29px;display:grid;place-items:center;flex:0 0 auto;border-radius:8px;color:var(--el-color-primary);background:var(--el-color-primary-light-9)}.saved-order-ticket strong{overflow:hidden;text-overflow:ellipsis;font:650 12px/1.4 'Manrope Variable',sans-serif;color:var(--el-text-color-primary);letter-spacing:.25px}.order-symbol-tag{max-width:100%;font-weight:550}.order-symbol-tag :deep(.el-tag__content){overflow:hidden;text-overflow:ellipsis}.order-side-tag{min-width:46px;justify-content:center;font-weight:600}.order-number{font:600 12px/1.4 'Manrope Variable',sans-serif;font-variant-numeric:tabular-nums;color:var(--el-text-color-primary)}.order-number.muted{color:var(--el-text-color-placeholder);font-weight:500}.order-stop:not(.muted){color:color-mix(in srgb,var(--el-color-danger) 82%,var(--el-text-color-primary))}.order-target:not(.muted){color:color-mix(in srgb,var(--el-color-success) 82%,var(--el-text-color-primary))}.order-status-tag{min-height:28px;border-radius:7px;transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease}.order-status-tag :deep(.el-tag__content){display:flex;align-items:center;gap:4px}.order-status-tag:hover{filter:saturate(1.08);box-shadow:0 2px 8px color-mix(in srgb,var(--el-text-color-primary) 10%,transparent)}.order-status-tag:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}.order-updated-at{white-space:nowrap;font:500 11px/1.5 'Manrope Variable',sans-serif;font-variant-numeric:tabular-nums;color:var(--el-text-color-secondary)}@media(max-width:760px){.order-list-table :deep(.el-table__body td.el-table__cell){height:54px}.order-status-tag{min-height:30px}.saved-order-ticket>span{width:31px;height:31px}}
 .order-status-tag svg{transition:transform .18s ease}.order-status-tag.is-open svg{transform:rotate(180deg)}:global(.order-status-popover.el-popover){padding:7px;border-color:var(--el-border-color-light);border-radius:10px;background:var(--el-bg-color-overlay);box-shadow:var(--el-box-shadow-light)}.status-menu{display:grid;gap:3px}.status-menu-title{padding:5px 8px 8px;border-bottom:1px solid var(--el-border-color-extra-light);margin-bottom:2px;font-size:11px;font-weight:600;color:var(--el-text-color-secondary)}.status-menu-option.el-button{width:100%;height:auto;margin:0;padding:0;border-radius:7px;color:var(--el-text-color-primary)}.status-menu-option.el-button :deep(>span){width:100%}.status-menu-row{display:grid;grid-template-columns:9px minmax(0,1fr) 16px;align-items:center;gap:10px;width:100%;padding:8px 9px;text-align:left}.status-menu-dot{width:8px;height:8px;border-radius:50%;background:var(--el-color-info)}.status-menu-copy{display:grid;gap:2px;min-width:0}.status-menu-copy strong{font-size:12px;font-weight:600;line-height:1.4;color:var(--el-text-color-primary)}.status-menu-copy small{font-size:10px;font-weight:400;line-height:1.4;color:var(--el-text-color-secondary)}.status-menu-check{color:var(--el-color-primary)}.status-menu-option:hover,.status-menu-option:focus-visible{background:var(--el-fill-color-light)}.status-menu-option:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:-2px}.status-menu-option.status-pending.selected{background:var(--el-color-info-light-9)}.status-menu-option.status-open.selected{background:var(--el-color-warning-light-9)}.status-menu-option.status-closed.selected{background:var(--el-color-success-light-9)}.status-menu-option.status-open .status-menu-dot{background:var(--el-color-warning)}.status-menu-option.status-closed .status-menu-dot{background:var(--el-color-success)}.status-menu-option.status-pending .status-menu-check{color:var(--el-color-info)}.status-menu-option.status-open .status-menu-check{color:var(--el-color-warning)}.status-menu-option.status-closed .status-menu-check{color:var(--el-color-success)}

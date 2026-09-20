@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 const statuses = new Set(['pending', 'open', 'closed']);
 const sides = new Set(['buy', 'sell']);
+const updateEmotions = new Set(['calm', 'confident', 'hesitant', 'nervous', 'fearful', 'greedy', 'impulsive']);
 const publicError = (status, message) => Object.assign(new Error(message), { status });
 
 function text(value, label, limit, required = false) {
@@ -69,17 +70,20 @@ function validateOrder(body) {
 
 function validateComparedFields(body) {
   const fields = ['volume', 'reportedSL', 'reportedTP'];
-  const allowed = new Set(['expectedUpdatedAt', ...fields]);
+  const allowed = new Set(['expectedUpdatedAt', 'reason', 'emotion', ...fields]);
   if (!body || typeof body !== 'object' || Array.isArray(body)
     || Object.keys(body).some(key => !allowed.has(key))) throw publicError(400, '截图对比更新包含不支持的字段。');
   const expectedUpdatedAt = text(body.expectedUpdatedAt, '订单更新时间', 40, true);
+  const reason = text(body.reason, '修改原因', 500, true);
+  const emotion = text(body.emotion, '当时情绪', 20, true);
+  if (!updateEmotions.has(emotion)) throw publicError(400, '当时情绪无效。');
   const supplied = fields.filter(key => Object.hasOwn(body, key));
   if (!supplied.length) throw publicError(400, '请至少提交一项已识别的手数、止损或止盈。');
   const values = Object.fromEntries(supplied.map(key => {
     if (body[key] === null || body[key] === '') throw publicError(400, '未知的截图字段不能用于清空订单。');
     return [key, number(body[key], { volume: '手数', reportedSL: '止损', reportedTP: '止盈' }[key])];
   }));
-  return { expectedUpdatedAt, supplied, values };
+  return { expectedUpdatedAt, reason, emotion, supplied, values };
 }
 
 function sameNumber(left, right) {
@@ -220,7 +224,9 @@ export function createOrderStore(db, getEventStore = () => null) {
         for (const change of changes) next[change.field] = change.to;
         const now = nextTimestamp(row.updated_at);
         updateCompared.run(next.volume, next.reportedSL, next.reportedTP, now, orderId);
-        const event = appendEvent(planId, orderId, 'order_fields_changed', { ticket: row.ticket, changes }, now);
+        const event = appendEvent(planId, orderId, 'order_fields_changed', {
+          ticket: row.ticket, changes, reason: input.reason, emotion: input.emotion, source: 'ocr',
+        }, now);
         return { order: hydrate(byId.get(orderId)), changed: true, event };
       });
     },
