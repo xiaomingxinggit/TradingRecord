@@ -5,8 +5,8 @@ import {
   ElInputNumber, ElMessage, ElMessageBox, ElOption, ElPopover,
   ElSelect, ElSkeleton, ElTable, ElTableColumn, ElTag,
 } from 'element-plus'
-import { Check, ChevronDown, ImagePlus, Plus, ReceiptText } from 'lucide-vue-next'
-import { emptyOrder, orderStatusLabels, type OcrOrderRow, type OrderFields, type OrderStatus, type RecordedOrder } from '../orders'
+import { Check, ChevronDown, ImagePlus, LockKeyhole, Plus, ReceiptText } from 'lucide-vue-next'
+import { emptyOrder, orderRiskReward, orderStatusLabels, type OcrOrderRow, type OrderFields, type OrderStatus, type RecordedOrder } from '../orders'
 
 interface DraftRow { id: string; fields: OrderFields; warnings: string[]; raw?: Record<string, string> }
 interface OcrResult { rows: OcrOrderRow[]; detectedStatus: OrderStatus; ambiguous: boolean; warnings: string[] }
@@ -19,6 +19,7 @@ const emit = defineEmits<{ stateChange: [state: { dirty: boolean; busy: boolean 
 const orders = ref<RecordedOrder[]>([]), drafts = ref<DraftRow[]>([]), currentId = ref('')
 const loading = ref(false), recognizing = ref(false), saving = ref(false), changingId = ref('')
 const openStatusMenuId = ref('')
+const lockingId = ref('')
 const error = ref(''), warnings = ref<string[]>([]), preview = ref('')
 const compareDialog = ref(false), compareRecognizing = ref(false), compareSaving = ref(false)
 const comparePreview = ref(''), compareError = ref(''), compareWarnings = ref<string[]>([]), comparison = ref<ComparisonDraft | null>(null)
@@ -27,8 +28,9 @@ let generation = 0, readController: AbortController | undefined, ocrController: 
 let compareController: AbortController | undefined, writeController: AbortController | undefined
 const current = computed(() => drafts.value.find(row => row.id === currentId.value))
 const dirty = computed(() => drafts.value.length > 0 || !!preview.value || !!comparePreview.value || !!comparison.value)
-const busy = computed(() => loading.value || recognizing.value || saving.value || compareRecognizing.value || compareSaving.value || !!changingId.value)
+const busy = computed(() => loading.value || recognizing.value || saving.value || compareRecognizing.value || compareSaving.value || !!changingId.value || !!lockingId.value)
 const locked = computed(() => !!props.disabled || busy.value)
+const hasUpdatableOrders = computed(() => orders.value.some(order => !order.lockedAt))
 const fieldKeys: (keyof OrderFields)[] = ['ticket', 'status', 'symbol', 'side', 'volume', 'pendingTime', 'pendingPrice',
   'openTime', 'openPrice', 'closeTime', 'closePrice', 'reportedSL', 'reportedTP', 'reportedProfit']
 const compareLabels: Record<CompareField, string> = { volume: '手数', reportedSL: '止损', reportedTP: '止盈' }
@@ -142,7 +144,7 @@ async function recognize(file?: File) {
 }
 function chooseImage(event: Event) { const input = event.target as HTMLInputElement; void recognize(input.files?.[0]); input.value = '' }
 function openComparison() {
-  if (locked.value) return
+  if (locked.value || !hasUpdatableOrders.value) return
   compareError.value = ''; compareDialog.value = true
 }
 async function recognizeComparison(file?: File) {
@@ -163,6 +165,7 @@ async function recognizeComparison(file?: File) {
     if (!ticket) { compareError.value = '截图未可靠识别订单号，未匹配或更新任何订单。'; return }
     const order = orders.value.find(item => item.ticket === ticket)
     if (!order) { compareError.value = `订单号 ${ticket} 不属于当前计划，未更新任何订单。`; return }
+    if (order.lockedAt) { compareError.value = `订单号 ${ticket} 已锁定，无法再修改手数、止损和止盈。`; return }
     const changes: CompareChange[] = []
     for (const field of ['volume', 'reportedSL', 'reportedTP'] as const) {
       const value = row[field]
@@ -178,6 +181,9 @@ async function recognizeComparison(file?: File) {
 function chooseComparisonImage(event: Event) { const input = event.target as HTMLInputElement; void recognizeComparison(input.files?.[0]); input.value = '' }
 async function saveComparison() {
   if (!comparison.value?.changes.length || locked.value) return
+  if (comparison.value.order.lockedAt || orders.value.find(order => order.id === comparison.value?.order.id)?.lockedAt) {
+    compareError.value = '订单已锁定，无法再修改手数、止损和止盈。'; return
+  }
   const draft = comparison.value, version = generation, controller = new AbortController(); writeController = controller
   compareSaving.value = true; compareError.value = ''
   try {
@@ -223,7 +229,7 @@ function pasteImage(event: ClipboardEvent) {
   else void recognize(files[0])
 }
 async function changeStatus(order: RecordedOrder, status: OrderStatus) {
-  if (locked.value || order.status === status) return false
+  if (locked.value || order.lockedAt || order.status === status) return false
   changingId.value = order.id; error.value = ''
   try {
     const result = await json<{ order: RecordedOrder }>(await fetch(`/api/plans/${encodeURIComponent(props.planId)}/orders/${encodeURIComponent(order.id)}/status`, {
@@ -236,14 +242,37 @@ async function changeStatus(order: RecordedOrder, status: OrderStatus) {
   finally { changingId.value = '' }
 }
 function setStatusMenuVisibility(orderId: string, visible: boolean) {
-  if (changingId.value || (visible && locked.value)) return
+  if (changingId.value || (visible && (locked.value || orders.value.find(order => order.id === orderId)?.lockedAt))) return
   openStatusMenuId.value = visible ? orderId : ''
 }
 async function selectStatusFromMenu(value: unknown, status: OrderStatus) {
   const order = value as RecordedOrder
-  if (changingId.value) return
+  if (locked.value || order.lockedAt) return
   if (order.status === status) { openStatusMenuId.value = ''; return }
   if (await changeStatus(order, status)) openStatusMenuId.value = ''
+}
+async function lockOrder(order: RecordedOrder) {
+  if (locked.value || order.lockedAt || order.status !== 'closed') return
+  const version = generation
+  lockingId.value = order.id; openStatusMenuId.value = ''; error.value = ''
+  try {
+    try {
+      await ElMessageBox.confirm('锁定后订单视为完结，无法再修改状态、手数、止损和止盈。此操作不可撤销，不能解锁。', `锁定订单 ${order.ticket}`, {
+        confirmButtonText: '确认永久锁定', cancelButtonText: '取消', type: 'warning', closeOnClickModal: false,
+      })
+    } catch { return }
+    if (version !== generation) return
+    const controller = new AbortController(); writeController = controller
+    const result = await json<{ order: RecordedOrder; changed: boolean }>(await fetch(`/api/plans/${encodeURIComponent(props.planId)}/orders/${encodeURIComponent(order.id)}/lock`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: order.updatedAt }), signal: controller.signal,
+    }))
+    if (version !== generation) return
+    orders.value = orders.value.map(item => item.id === result.order.id ? result.order : item)
+    ElMessage({ type: result.changed ? 'success' : 'info', message: result.changed ? '订单已锁定，视为完结。' : '订单已经锁定。' })
+  } catch (problem) {
+    if (version === generation && (problem as Error).name !== 'AbortError') error.value = (problem as Error).message
+  } finally { lockingId.value = ''; if (version === generation) writeController = undefined }
 }
 async function confirmDiscard() {
   if (busy.value) return false
@@ -266,7 +295,7 @@ defineExpose({ confirmDiscard })
 <template>
   <div class="linked-orders">
     <ElCard shadow="never" class="order-import-card">
-      <template #header><div class="plan-card-heading"><div><h2>导入订单</h2><span>本机识别 · 原图不保存</span></div><div class="order-actions"><ElButton type="primary" :disabled="locked" :loading="recognizing" @click="fileInput?.click()"><ImagePlus :size="15"/>选择截图</ElButton><ElButton plain :disabled="locked || !orders.length" @click="openComparison">更新订单</ElButton><ElButton text :disabled="locked" @click="addManual"><Plus :size="15"/>手动添加一行</ElButton></div></div></template>
+      <template #header><div class="plan-card-heading"><div><h2>导入订单</h2><span>本机识别 · 原图不保存</span></div><div class="order-actions"><ElButton type="primary" :disabled="locked" :loading="recognizing" @click="fileInput?.click()"><ImagePlus :size="15"/>选择截图</ElButton><ElButton plain :disabled="locked || !hasUpdatableOrders" @click="openComparison">更新订单</ElButton><ElButton text :disabled="locked" @click="addManual"><Plus :size="15"/>手动添加一行</ElButton></div></div></template>
       <input ref="fileInput" type="file" hidden accept="image/png,image/jpeg,image/webp" @change="chooseImage"/>
       <div class="order-import-intro"><p class="order-help">选择或粘贴一张完整宽度的浅色 MT5 挂单、持仓中或已平仓截图，建议每次截取一行。系统自动判断布局；识别草稿必须对照原图核对后保存。</p></div>
       <ElAlert v-if="error" :title="error" type="error" show-icon :closable="false"/>
@@ -312,8 +341,10 @@ defineExpose({ confirmDiscard })
         <ElTableColumn label="开仓价" width="125" align="center"><template #default="{ row }"><span class="order-number" :class="{ muted: row.openPrice === null }">{{ row.openPrice ?? '—' }}</span></template></ElTableColumn>
         <ElTableColumn label="止损" width="125" align="center"><template #default="{ row }"><span class="order-number order-stop" :class="{ muted: row.reportedSL === null }">{{ row.reportedSL ?? '—' }}</span></template></ElTableColumn>
         <ElTableColumn label="止盈" width="125" align="center"><template #default="{ row }"><span class="order-number order-target" :class="{ muted: row.reportedTP === null }">{{ row.reportedTP ?? '—' }}</span></template></ElTableColumn>
+        <ElTableColumn label="盈亏比" width="120" align="center"><template #default="{ row }"><span class="order-number order-ratio" :class="{ muted: orderRiskReward(row as RecordedOrder) === '—' }" title="当前开仓价、止损、止盈的计划收益 / 风险，不计交易成本">{{ orderRiskReward(row as RecordedOrder) }}</span></template></ElTableColumn>
         <ElTableColumn label="当前状态" width="135" align="center"><template #default="{ row }">
-          <ElPopover trigger="click" placement="bottom" :width="220" popper-class="order-status-popover"
+          <ElTag v-if="row.lockedAt" class="order-status-tag is-locked" effect="plain" type="success">{{ orderStatusLabels[row.status as OrderStatus] }}</ElTag>
+          <ElPopover v-else trigger="click" placement="bottom" :width="220" popper-class="order-status-popover"
             :visible="openStatusMenuId === row.id" :disabled="locked && changingId !== row.id"
             @update:visible="visible => setStatusMenuVisibility(row.id, visible)">
             <template #reference><ElTag class="order-status-tag" :class="{ 'is-open': openStatusMenuId === row.id }" effect="plain" :type="row.status === 'closed' ? 'success' : row.status === 'open' ? 'warning' : 'info'" tabindex="0" role="button" aria-haspopup="menu" :aria-expanded="openStatusMenuId === row.id" :aria-label="`修改订单 ${row.ticket} 状态`" @keydown.enter.prevent="setStatusMenuVisibility(row.id, openStatusMenuId !== row.id)" @keydown.space.prevent="setStatusMenuVisibility(row.id, openStatusMenuId !== row.id)">{{ orderStatusLabels[row.status as OrderStatus] }}<ChevronDown :size="13"/></ElTag></template>
@@ -326,6 +357,11 @@ defineExpose({ confirmDiscard })
               </ElButton>
             </div>
           </ElPopover>
+        </template></ElTableColumn>
+        <ElTableColumn label="锁定状态" width="140" align="center"><template #default="{ row }">
+          <ElTag v-if="row.lockedAt" class="order-lock-tag" effect="light" type="info" :title="`锁定于 ${timestamp(row.lockedAt)}`"><LockKeyhole :size="13"/>已锁定</ElTag>
+          <ElButton v-else-if="row.status === 'closed'" size="small" plain :disabled="locked" :loading="lockingId === row.id" @click="lockOrder(row as RecordedOrder)">锁定订单</ElButton>
+          <span v-else class="order-lock-pending">待平仓</span>
         </template></ElTableColumn>
         <ElTableColumn label="更新时间" min-width="180" align="center"><template #default="{ row }"><span class="order-updated-at">{{ timestamp(row.updatedAt) }}</span></template></ElTableColumn>
       </ElTable>
@@ -350,12 +386,13 @@ defineExpose({ confirmDiscard })
           <ElAlert v-else title="未发现可更新变化" type="info" show-icon :closable="false"/>
         </section>
       </div>
-      <template #footer><ElButton :disabled="compareRecognizing || compareSaving" @click="closeComparison()">取消</ElButton><ElButton type="primary" :loading="compareSaving" :disabled="locked || !comparison?.changes.length" @click="saveComparison">确认更新</ElButton></template>
+      <template #footer><ElButton :disabled="compareRecognizing || compareSaving" @click="closeComparison()">取消</ElButton><ElButton type="primary" :loading="compareSaving" :disabled="locked || !!comparison?.order.lockedAt || !comparison?.changes.length" @click="saveComparison">确认更新</ElButton></template>
     </ElDialog>
   </div>
 </template>
 
 <style scoped>
+.linked-orders{min-width:0}.order-ratio{white-space:nowrap}.order-status-tag.is-locked{cursor:default}.order-status-tag.is-locked:hover{filter:none;box-shadow:none}.order-lock-tag :deep(.el-tag__content){display:flex;align-items:center;gap:5px}.order-lock-pending{font-size:12px;color:var(--el-text-color-placeholder)}
 .order-compare-content{display:grid;gap:14px}.order-compare-content .compare-alert,.order-compare-content .order-preview,.order-compare-content .order-warning,.order-compare-content .compare-result{margin-top:0;margin-bottom:0}.compare-picker{display:flex;align-items:center}.compare-picker .el-button{margin:0}.compare-warnings{display:grid;gap:10px}.compare-warnings .order-warning{margin:0}
 .linked-orders{display:grid;gap:18px}.order-import-card{border-top:3px solid var(--el-color-primary-light-7)}.order-help{font-size:12px;line-height:1.8;color:var(--el-text-color-secondary);overflow-wrap:anywhere}.order-import-intro{padding:12px 14px;border-left:3px solid var(--el-color-primary-light-5);border-radius:0 8px 8px 0;background:var(--el-color-primary-light-9)}.order-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.order-actions .el-button{margin:0}.order-preview{display:block;width:100%;max-height:320px;margin:16px 0;padding:8px;background:var(--el-fill-color-extra-light);border:1px solid var(--el-border-color-lighter);border-radius:10px}.order-warning{margin-top:10px}.order-drafts{margin-top:20px;padding-top:20px;border-top:1px solid var(--el-border-color-lighter)}.order-draft-table{--el-table-header-bg-color:var(--el-fill-color-extra-light);border-radius:8px;overflow:hidden}.order-draft-form{margin-top:18px;padding:18px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:color-mix(in srgb,var(--el-fill-color-extra-light) 64%,transparent)}.order-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 16px;margin-top:14px}.order-fields-primary{grid-template-columns:repeat(5,minmax(0,1fr))}.order-fields .el-input-number{width:100%}.order-raw{margin-top:10px;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--el-text-color-secondary);font-size:12px;background:var(--el-fill-color-extra-light);border-radius:8px}.order-list-card :deep(.el-card__body){padding:0}.order-list-card :deep(.el-empty){padding:24px}.order-list-table{width:100%;--el-table-header-bg-color:var(--plan-table-bg,var(--el-fill-color-extra-light));--el-table-row-hover-bg-color:var(--el-fill-color-extra-light)}.order-list-table :deep(.el-table__cell){padding-block:12px}.order-ticket{font:650 12px/1.4 'Manrope Variable',sans-serif;color:var(--el-text-color-primary);letter-spacing:.2px}.order-status-tag{cursor:pointer;font-weight:550}.compare-alert{margin-top:14px}.compare-result{display:grid;gap:14px;margin-top:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-fill-color-extra-light)}.compare-order{display:flex;gap:12px;align-items:center;font-size:13px}.compare-order span{color:var(--el-text-color-secondary)}.compare-order strong{font-family:'Manrope Variable',sans-serif}summary{width:max-content;max-width:100%;padding:8px 0;cursor:pointer;color:var(--el-color-primary);font-size:13px;font-weight:550}details+details{margin-top:6px}@media(max-width:900px){.order-fields-primary,.order-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.plan-card-heading{align-items:flex-start;flex-direction:column}.order-actions{width:100%}}@media(max-width:560px){.order-fields-primary,.order-fields{grid-template-columns:1fr}.order-actions .el-button{flex:1}.order-actions .el-button:first-child{flex-basis:100%}.order-draft-form{padding:14px}}
 .order-list-heading h2{gap:9px}.order-count-tag{--el-tag-bg-color:var(--el-color-primary-light-9);--el-tag-border-color:var(--el-color-primary-light-7);--el-tag-text-color:var(--el-color-primary);font-weight:600}.order-list-card{overflow:hidden}.order-list-table{--el-table-header-bg-color:var(--el-fill-color-extra-light);--el-table-header-text-color:var(--el-text-color-secondary);--el-table-border-color:var(--el-border-color-extra-light);--el-table-row-hover-bg-color:var(--el-color-primary-light-9)}.order-list-table :deep(.cell){padding-inline:14px}.order-list-table :deep(.el-table__header th.el-table__cell){padding-block:11px;font-size:11px;font-weight:600;letter-spacing:.35px}.order-list-table :deep(.el-table__body td.el-table__cell){height:58px;padding-block:12px;border-bottom-color:var(--el-border-color-extra-light)}.order-list-table :deep(.el-table__row:last-child td.el-table__cell){border-bottom:0}.order-list-table :deep(.el-table__inner-wrapper::before){background:var(--el-border-color-extra-light)}.saved-order-ticket{display:flex;align-items:center;gap:9px;min-width:0}.saved-order-ticket>span{width:29px;height:29px;display:grid;place-items:center;flex:0 0 auto;border-radius:8px;color:var(--el-color-primary);background:var(--el-color-primary-light-9)}.saved-order-ticket strong{overflow:hidden;text-overflow:ellipsis;font:650 12px/1.4 'Manrope Variable',sans-serif;color:var(--el-text-color-primary);letter-spacing:.25px}.order-symbol-tag{max-width:100%;font-weight:550}.order-symbol-tag :deep(.el-tag__content){overflow:hidden;text-overflow:ellipsis}.order-side-tag{min-width:46px;justify-content:center;font-weight:600}.order-number{font:600 12px/1.4 'Manrope Variable',sans-serif;font-variant-numeric:tabular-nums;color:var(--el-text-color-primary)}.order-number.muted{color:var(--el-text-color-placeholder);font-weight:500}.order-stop:not(.muted){color:color-mix(in srgb,var(--el-color-danger) 82%,var(--el-text-color-primary))}.order-target:not(.muted){color:color-mix(in srgb,var(--el-color-success) 82%,var(--el-text-color-primary))}.order-status-tag{min-height:28px;border-radius:7px;transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease}.order-status-tag :deep(.el-tag__content){display:flex;align-items:center;gap:4px}.order-status-tag:hover{filter:saturate(1.08);box-shadow:0 2px 8px color-mix(in srgb,var(--el-text-color-primary) 10%,transparent)}.order-status-tag:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}.order-updated-at{white-space:nowrap;font:500 11px/1.5 'Manrope Variable',sans-serif;font-variant-numeric:tabular-nums;color:var(--el-text-color-secondary)}@media(max-width:760px){.order-list-table :deep(.el-table__body td.el-table__cell){height:54px}.order-status-tag{min-height:30px}.saved-order-ticket>span{width:31px;height:31px}}

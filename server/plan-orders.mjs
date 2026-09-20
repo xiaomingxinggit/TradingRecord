@@ -13,5 +13,8 @@ export function createPlanOrdersRouter(store) {
   router.patch('/:orderId/compared-fields', json({ limit: '8kb' }), (req, res) => {
     res.json(store.updateComparedFields(req.params.planId, req.params.orderId, req.body));
   });
+  router.patch('/:orderId/lock', json({ limit: '8kb' }), (req, res) => {
+    res.json(store.lockForPlan(req.params.planId, req.params.orderId, req.body));
+  });
   return router;
 }

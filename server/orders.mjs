@@ -118,6 +118,10 @@ export function createOrderStore(db, getEventStore = () => null) {
     );
     CREATE INDEX IF NOT EXISTS tr_orders_v2_plan ON tr_orders_v2(plan_id, created_at, id);
   `);
+  // Additive migration: existing orders remain unlocked; older versions ignore this nullable column.
+  if (!db.prepare('PRAGMA table_info(tr_orders_v2)').all().some(column => column.name === 'locked_at')) {
+    db.exec('ALTER TABLE tr_orders_v2 ADD COLUMN locked_at TEXT');
+  }
   const findPlan = db.prepare('SELECT id FROM plans WHERE id = ?');
   const byId = db.prepare('SELECT * FROM tr_orders_v2 WHERE id = ?');
   const byTicket = db.prepare('SELECT * FROM tr_orders_v2 WHERE ticket = ?');
@@ -128,6 +132,7 @@ export function createOrderStore(db, getEventStore = () => null) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const attach = db.prepare('UPDATE tr_orders_v2 SET plan_id = ?, updated_at = ? WHERE id = ? AND plan_id IS NULL');
   const updateStatus = db.prepare('UPDATE tr_orders_v2 SET status = ?, updated_at = ? WHERE id = ?');
+  const lock = db.prepare('UPDATE tr_orders_v2 SET locked_at = ?, updated_at = ? WHERE id = ?');
   const updateCompared = db.prepare(`UPDATE tr_orders_v2
     SET volume = ?, reported_sl = ?, reported_tp = ?, updated_at = ? WHERE id = ?`);
   const hydrate = row => row ? ({
@@ -135,7 +140,7 @@ export function createOrderStore(db, getEventStore = () => null) {
     volume: row.volume, pendingTime: row.pending_time, pendingPrice: row.pending_price,
     openTime: row.open_time, openPrice: row.open_price, closeTime: row.close_time, closePrice: row.close_price,
     reportedSL: row.reported_sl, reportedTP: row.reported_tp, reportedProfit: row.reported_profit,
-    createdAt: row.created_at, updatedAt: row.updated_at,
+    createdAt: row.created_at, updatedAt: row.updated_at, lockedAt: row.locked_at ?? null,
   }) : null;
   const requirePlan = planId => {
     if (!findPlan.get(planId)) throw publicError(404, '未找到这份交易计划。');
@@ -190,6 +195,7 @@ export function createOrderStore(db, getEventStore = () => null) {
       }
       return transaction(() => {
         const row = requireOwned(planId, orderId);
+        if (row.locked_at) throw publicError(409, '订单已锁定，无法再修改状态。');
         if (row.status === body.status) return { order: hydrate(row), changed: false };
         const now = nextTimestamp(row.updated_at);
         updateStatus.run(body.status, now, orderId);
@@ -202,6 +208,7 @@ export function createOrderStore(db, getEventStore = () => null) {
       const input = validateComparedFields(body);
       return transaction(() => {
         const row = requireOwned(planId, orderId);
+        if (row.locked_at) throw publicError(409, '订单已锁定，无法再修改手数、止损和止盈。');
         if (row.updated_at !== input.expectedUpdatedAt) {
           throw publicError(409, '订单已发生变化，请重新加载订单并再次对比截图。');
         }
@@ -214,6 +221,26 @@ export function createOrderStore(db, getEventStore = () => null) {
         const now = nextTimestamp(row.updated_at);
         updateCompared.run(next.volume, next.reportedSL, next.reportedTP, now, orderId);
         const event = appendEvent(planId, orderId, 'order_fields_changed', { ticket: row.ticket, changes }, now);
+        return { order: hydrate(byId.get(orderId)), changed: true, event };
+      });
+    },
+    lockForPlan(planId, orderId, body) {
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || Object.keys(body).some(key => key !== 'expectedUpdatedAt')) {
+        throw publicError(400, '锁定订单仅接受订单更新时间。');
+      }
+      const expectedUpdatedAt = text(body.expectedUpdatedAt, '订单更新时间', 40, true);
+      return transaction(() => {
+        const row = requireOwned(planId, orderId);
+        if (row.locked_at) return { order: hydrate(row), changed: false };
+        if (row.updated_at !== expectedUpdatedAt) {
+          throw publicError(409, '订单已发生变化，请重新加载后再确认锁定。');
+        }
+        if (row.status !== 'closed') throw publicError(409, '只有已平仓订单可以锁定。');
+        const now = nextTimestamp(row.updated_at);
+        lock.run(now, now, orderId);
+        const event = appendEvent(planId, orderId, 'order_fields_changed', { ticket: row.ticket,
+          changes: [{ field: 'lockedAt', from: null, to: now }] }, now);
         return { order: hydrate(byId.get(orderId)), changed: true, event };
       });
     },

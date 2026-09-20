@@ -5,7 +5,7 @@ const sideLabels = { buy: '做多', sell: '做空' };
 const marketLabels = { uptrend: '上涨趋势', downtrend: '下跌趋势', range: '震荡', uncertain: '不确定' };
 const orderStatusLabels = { pending: '挂单', open: '持仓中', closed: '已平仓' };
 const eventTypeLabels = { order_created: '创建并关联订单', order_status_changed: '订单状态变更', order_fields_changed: '订单字段更新' };
-const eventFieldLabels = { status: '订单状态', volume: '手数', reportedSL: '止损', reportedTP: '止盈' };
+const eventFieldLabels = { status: '订单状态', volume: '手数', reportedSL: '止损', reportedTP: '止盈', lockedAt: '锁定状态' };
 const assessmentLabels = { valid: '成立', partial: '部分成立', invalid: '不成立', unverified: '尚未验证' };
 const disciplineLabels = { followed: '按计划执行', deviated: '有所偏离', broken: '明显偏离', not_executed: '未执行' };
 const imageExtensions = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp']]);
@@ -24,6 +24,7 @@ const orderFields = [
   ['openTime', '开仓时间（报告时钟）'], ['openPrice', '开仓价'],
   ['closeTime', '平仓时间（报告时钟）'], ['closePrice', '平仓价'],
   ['reportedSL', '截图止损'], ['reportedTP', '截图止盈'], ['reportedProfit', '截图盈利'],
+  ['riskReward', '盈亏比（当前计划收益 / 风险，不计交易成本）'], ['lockStatus', '锁定状态'], ['lockedAt', '锁定时间（UTC）'],
   ['createdAt', '创建时间（UTC）'], ['updatedAt', '更新时间（UTC）'],
 ];
 
@@ -37,9 +38,21 @@ function textBlock(value) {
 }
 
 function eventValue(field, value) {
+  if (field === 'lockedAt') return value ? `订单已锁定（${value}）` : '未锁定';
   if (value === null || value === undefined || value === '') return '未记录';
   if (field === 'status') return orderStatusLabels[value] ?? value;
   return String(value);
+}
+
+// Keep the same price-distance semantics as src/orders.ts; never use realized profit.
+function orderRiskReward({ side, openPrice: entry, reportedSL: stop, reportedTP: target }) {
+  if (![entry, stop, target].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0)) return '—';
+  const valid = side === 'buy' ? stop < entry && entry < target
+    : side === 'sell' && target < entry && entry < stop;
+  if (!valid) return '—';
+  const risk = Math.abs(entry - stop), reward = Math.abs(target - entry);
+  const ratio = reward / risk;
+  return risk > 0 && Number.isFinite(ratio) && ratio > 0 ? `${ratio.toFixed(2)} : 1` : '—';
 }
 
 export async function exportPlansArchive(plans) {
@@ -83,7 +96,9 @@ export async function exportPlansArchive(plans) {
     for (const [orderIndex, order] of (plan.orders ?? []).entries()) {
       markdown.push(`#### 订单 ${orderIndex + 1}`, '');
       for (const [key, label, labels] of orderFields) {
-        const value = order[key];
+        const value = key === 'riskReward' ? orderRiskReward(order)
+          : key === 'lockStatus' ? (order.lockedAt ? '已锁定' : order.status === 'closed' ? '未锁定' : '待平仓')
+          : key === 'lockedAt' ? order.lockedAt ?? '未记录' : order[key];
         const display = labels && Object.hasOwn(labels, value) ? `${labels[value]}（${value}）` : value;
         markdown.push(`##### ${label}`, '', textBlock(display), '');
       }

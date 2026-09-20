@@ -4,7 +4,7 @@ import { ElAlert, ElCard, ElEmpty, ElSkeleton, ElTag, ElTimeline, ElTimelineItem
 import { orderStatusLabels, type OrderStatus } from '../orders'
 
 type EventType = 'order_created' | 'order_status_changed' | 'order_fields_changed'
-type EventField = 'status' | 'volume' | 'reportedSL' | 'reportedTP'
+type EventField = 'status' | 'volume' | 'reportedSL' | 'reportedTP' | 'lockedAt'
 interface EventChange { field: EventField; from: number | string | null; to: number | string | null }
 interface PlanEvent { id: string; planId: string; orderId: string | null; type: EventType; detail: { ticket?: string; changes?: EventChange[] }; createdAt: string }
 const props = defineProps<{ planId: string }>()
@@ -13,7 +13,7 @@ let generation = 0, controller: AbortController | undefined
 const typeLabels: Record<EventType, string> = {
   order_created: '创建并关联订单', order_status_changed: '订单状态变更', order_fields_changed: '订单字段更新',
 }
-const fieldLabels: Record<EventField, string> = { status: '订单状态', volume: '手数', reportedSL: '止损', reportedTP: '止盈' }
+const fieldLabels: Record<EventField, string> = { status: '订单状态', volume: '手数', reportedSL: '止损', reportedTP: '止盈', lockedAt: '锁定状态' }
 
 async function json<T>(response: Response): Promise<T> {
   const result = await response.json().catch(() => ({ error: '服务返回无效响应。' }))
@@ -22,6 +22,7 @@ async function json<T>(response: Response): Promise<T> {
 }
 function timestamp(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
 function display(field: EventField, value: unknown) {
+  if (field === 'lockedAt') return value ? '订单已锁定' : '未锁定'
   if (value === null || value === undefined || value === '') return '未记录'
   if (field === 'status') return orderStatusLabels[value as OrderStatus] || String(value)
   return String(value)
