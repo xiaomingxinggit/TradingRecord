@@ -24,7 +24,7 @@ const orderFields = [
   ['openTime', '开仓时间（报告时钟）'], ['openPrice', '开仓价'],
   ['closeTime', '平仓时间（报告时钟）'], ['closePrice', '平仓价'],
   ['reportedSL', '截图止损'], ['reportedTP', '截图止盈'], ['reportedProfit', '截图盈利'],
-  ['riskReward', '盈亏比（当前计划收益 / 风险，不计交易成本）'], ['lockStatus', '锁定状态'], ['lockedAt', '锁定时间（UTC）'],
+  ['riskReward', '盈亏比（止盈距离 / 止损距离，不计交易成本）'], ['lockStatus', '锁定状态'], ['lockedAt', '锁定时间（UTC）'],
   ['createdAt', '创建时间（UTC）'], ['updatedAt', '更新时间（UTC）'],
 ];
 
@@ -47,12 +47,9 @@ function eventValue(field, value) {
 // Keep the same price-distance semantics as src/orders.ts; never use realized profit.
 function orderRiskReward({ side, openPrice: entry, reportedSL: stop, reportedTP: target }) {
   if (![entry, stop, target].every(value => typeof value === 'number' && Number.isFinite(value) && value > 0)) return '—';
-  const valid = side === 'buy' ? stop < entry && entry < target
-    : side === 'sell' && target < entry && entry < stop;
-  if (!valid) return '—';
   const risk = Math.abs(entry - stop), reward = Math.abs(target - entry);
   const ratio = reward / risk;
-  return risk > 0 && Number.isFinite(ratio) && ratio > 0 ? `${ratio.toFixed(2)} : 1` : '—';
+  return risk > 0 && Number.isFinite(ratio) ? `${ratio.toFixed(2)} : 1` : '—';
 }
 
 export async function exportPlansArchive(plans) {

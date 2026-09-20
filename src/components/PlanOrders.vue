@@ -341,7 +341,7 @@ defineExpose({ confirmDiscard })
         <ElTableColumn label="开仓价" width="125" align="center"><template #default="{ row }"><span class="order-number" :class="{ muted: row.openPrice === null }">{{ row.openPrice ?? '—' }}</span></template></ElTableColumn>
         <ElTableColumn label="止损" width="125" align="center"><template #default="{ row }"><span class="order-number order-stop" :class="{ muted: row.reportedSL === null }">{{ row.reportedSL ?? '—' }}</span></template></ElTableColumn>
         <ElTableColumn label="止盈" width="125" align="center"><template #default="{ row }"><span class="order-number order-target" :class="{ muted: row.reportedTP === null }">{{ row.reportedTP ?? '—' }}</span></template></ElTableColumn>
-        <ElTableColumn label="盈亏比" width="120" align="center"><template #default="{ row }"><span class="order-number order-ratio" :class="{ muted: orderRiskReward(row as RecordedOrder) === '—' }" title="当前开仓价、止损、止盈的计划收益 / 风险，不计交易成本">{{ orderRiskReward(row as RecordedOrder) }}</span></template></ElTableColumn>
+        <ElTableColumn label="盈亏比" width="120" align="center"><template #default="{ row }"><span class="order-number order-ratio" :class="{ muted: orderRiskReward(row as RecordedOrder) === '—' }" title="当前止盈距离 / 止损距离，不计交易成本，不代表实际盈利">{{ orderRiskReward(row as RecordedOrder) }}</span></template></ElTableColumn>
         <ElTableColumn label="当前状态" width="135" align="center"><template #default="{ row }">
           <ElTag v-if="row.lockedAt" class="order-status-tag is-locked" effect="plain" type="success">{{ orderStatusLabels[row.status as OrderStatus] }}</ElTag>
           <ElPopover v-else trigger="click" placement="bottom" :width="220" popper-class="order-status-popover"

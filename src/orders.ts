@@ -37,17 +37,14 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   pending: '挂单', open: '持仓中', closed: '已平仓',
 }
 
-// Current planned reward / risk by price distance; excludes costs and realized profit.
+// Current reward / risk by price distance; excludes costs and realized profit.
 export function orderRiskReward(order: Pick<OrderFields, 'side' | 'openPrice' | 'reportedSL' | 'reportedTP'>): string {
-  const { side, openPrice: entry, reportedSL: stop, reportedTP: target } = order
+  const { openPrice: entry, reportedSL: stop, reportedTP: target } = order
   if (entry === null || stop === null || target === null
     || ![entry, stop, target].every(value => Number.isFinite(value) && value > 0)) return '—'
-  const valid = side === 'buy' ? stop < entry && entry < target
-    : side === 'sell' && target < entry && entry < stop
-  if (!valid) return '—'
   const risk = Math.abs(entry - stop), reward = Math.abs(target - entry)
   const ratio = reward / risk
-  return risk > 0 && Number.isFinite(ratio) && ratio > 0 ? `${ratio.toFixed(2)} : 1` : '—'
+  return risk > 0 && Number.isFinite(ratio) ? `${ratio.toFixed(2)} : 1` : '—'
 }
 
 export const emptyOrder = (status: OrderStatus = 'open'): OrderFields => ({
