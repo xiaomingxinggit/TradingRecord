@@ -4,7 +4,7 @@
 
 TradeLog 只负责记录和整理，不连接交易账户，也不会执行任何交易。
 
-![TradeLog 交易计划列表](docs/images/tradelog-plan-list.png)
+![TradeLog 明亮与暗黑主题对照](docs/images/tradelog-theme-comparison.webp)
 
 ## 可以做什么
 
