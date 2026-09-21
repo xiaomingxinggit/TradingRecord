@@ -8,6 +8,7 @@ import AppNavigation from './components/AppNavigation.vue'
 import OpeningPlans from './components/OpeningPlans.vue'
 import DataOverview from './components/DataOverview.vue'
 import HelpDialog from './components/HelpDialog.vue'
+import SystemAnnouncement from './components/SystemAnnouncement.vue'
 
 const plansRef = ref<InstanceType<typeof OpeningPlans>>()
 const activeView = ref<'overview' | 'plans'>('overview')
@@ -74,6 +75,7 @@ async function exportData() {
           <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>{{ activeView === 'overview' ? '数据概览' : '交易计划' }}</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
           <ElSpace class="header-actions"><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElTooltip :content="themeAction" placement="bottom"><ElButton text circle :aria-label="themeAction" :title="themeAction" @click="toggleTheme"><Sun v-if="darkMode" :size="19" aria-hidden="true"/><Moon v-else :size="19" aria-hidden="true"/></ElButton></ElTooltip><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
         </ElHeader>
+        <SystemAnnouncement />
         <ElMain class="workspace-main">
           <ElAlert v-if="exportError" :title="exportError" type="error" show-icon class="export-alert" @close="exportError = ''"/>
           <DataOverview v-if="activeView === 'overview'" :navigating="navigating" @plans="showPlans" @open-plan="openOverviewPlan"/>
