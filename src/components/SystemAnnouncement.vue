@@ -12,8 +12,12 @@ const message = '市场还在就还有机会，别几把狗叫这那的，好好
     </div>
     <div class="system-announcement__viewport">
       <div class="system-announcement__track" aria-hidden="true">
-        <span class="system-announcement__message">{{ message }}</span>
-        <span class="system-announcement__message" aria-hidden="true">{{ message }}</span>
+        <div class="system-announcement__group">
+          <span class="system-announcement__message">{{ message }}</span>
+        </div>
+        <div class="system-announcement__group">
+          <span class="system-announcement__message">{{ message }}</span>
+        </div>
       </div>
       <span class="system-announcement__sr-only">{{ message }}</span>
     </div>
@@ -51,8 +55,15 @@ const message = '市场还在就还有机会，别几把狗叫这那的，好好
 
 .system-announcement__track {
   display: flex;
-  width: max-content;
+  width: 200%;
   animation: system-announcement-scroll 20s linear infinite;
+}
+
+.system-announcement__group {
+  display: flex;
+  align-items: center;
+  flex: 0 0 50%;
+  min-width: 0;
 }
 
 .system-announcement__message {
@@ -93,14 +104,15 @@ const message = '市场还在就还有机会，别几把狗叫这那的，好好
     animation: none;
   }
 
-  .system-announcement__message { display: none; }
-  .system-announcement__message:first-child {
+  .system-announcement__group { flex: 0 0 100%; }
+  .system-announcement__group + .system-announcement__group { display: none; }
+  .system-announcement__message {
     display: block;
     width: 100%;
-    padding-right: 0;
-    overflow: hidden;
+    padding: 6px 0;
+    overflow-wrap: anywhere;
     text-align: center;
-    text-overflow: ellipsis;
+    white-space: normal;
   }
 }
 </style>
