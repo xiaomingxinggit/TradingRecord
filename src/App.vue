@@ -7,35 +7,40 @@ import { darkMode, themeAction, toggleTheme } from './ui/theme'
 import AppNavigation from './components/AppNavigation.vue'
 import OpeningPlans from './components/OpeningPlans.vue'
 import DataOverview from './components/DataOverview.vue'
+import MarketRants from './components/MarketRants.vue'
 import HelpDialog from './components/HelpDialog.vue'
 import SystemAnnouncement from './components/SystemAnnouncement.vue'
 
 const plansRef = ref<InstanceType<typeof OpeningPlans>>()
-const activeView = ref<'overview' | 'plans'>('overview')
+const rantsRef = ref<InstanceType<typeof MarketRants>>()
+type WorkspaceView = 'overview' | 'rants' | 'plans'
+const activeView = ref<WorkspaceView>('overview')
+const viewNames: Record<WorkspaceView, string> = { overview: '数据概览', rants: '行情吐槽', plans: '交易计划' }
 const navigating = ref(false)
 const mobileMenu = ref(false), help = ref(false), exporting = ref(false), exportError = ref('')
-async function showPlans() {
+async function confirmLeaveCurrentView() {
+  if (activeView.value === 'plans') return await plansRef.value?.showList() ?? false
+  if (activeView.value === 'rants') return await rantsRef.value?.confirmDiscard() ?? false
+  return true
+}
+async function showView(view: WorkspaceView) {
   if (navigating.value) return
+  if (view === activeView.value && view !== 'plans') { mobileMenu.value = false; return }
   navigating.value = true
   try {
-    if (activeView.value === 'plans' && !await plansRef.value?.showList()) return
-    activeView.value = 'plans'
+    if (!await confirmLeaveCurrentView()) return
+    activeView.value = view
     mobileMenu.value = false
   } finally { navigating.value = false }
 }
-async function showOverview() {
-  if (navigating.value) return
-  navigating.value = true
-  try {
-    if (activeView.value === 'plans' && !await plansRef.value?.showList()) return
-    activeView.value = 'overview'
-    mobileMenu.value = false
-  } finally { navigating.value = false }
-}
+function showPlans() { return showView('plans') }
+function showOverview() { return showView('overview') }
+function showRants() { return showView('rants') }
 async function openOverviewPlan(id: string) {
   if (navigating.value) return
   navigating.value = true
   try {
+    if (!await confirmLeaveCurrentView()) return
     activeView.value = 'plans'
     await nextTick()
     await plansRef.value?.openPlan({ id })
@@ -69,22 +74,23 @@ async function exportData() {
 <template>
   <ElConfigProvider :locale="zhCn">
     <ElContainer class="app-layout">
-      <ElAside width="232px" class="desktop-sidebar"><AppNavigation :active-view="activeView" :navigating="navigating" :exporting="exporting" @overview="showOverview" @plans="showPlans" @export="exportData" @help="showHelp"/></ElAside>
+      <ElAside width="232px" class="desktop-sidebar"><AppNavigation :active-view="activeView" :navigating="navigating" :exporting="exporting" @overview="showOverview" @rants="showRants" @plans="showPlans" @export="exportData" @help="showHelp"/></ElAside>
       <ElContainer direction="vertical" class="content-layout">
         <ElHeader height="68px" class="app-header">
-          <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>{{ activeView === 'overview' ? '数据概览' : '交易计划' }}</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
+          <ElSpace :size="12"><ElButton class="mobile-menu-toggle" text circle aria-label="打开导航" @click="mobileMenu = true"><Menu :size="20"/></ElButton><ElBreadcrumb :separator-icon="ChevronRight"><ElBreadcrumbItem>工作空间</ElBreadcrumbItem><ElBreadcrumbItem>{{ viewNames[activeView] }}</ElBreadcrumbItem></ElBreadcrumb></ElSpace>
           <ElSpace class="header-actions"><ElTag type="success" effect="plain" round class="local-status">数据保存在本机</ElTag><ElTooltip :content="themeAction" placement="bottom"><ElButton text circle :aria-label="themeAction" :title="themeAction" @click="toggleTheme"><Sun v-if="darkMode" :size="19" aria-hidden="true"/><Moon v-else :size="19" aria-hidden="true"/></ElButton></ElTooltip><ElButton text circle aria-label="使用说明" @click="showHelp"><CircleHelp :size="19"/></ElButton></ElSpace>
         </ElHeader>
         <SystemAnnouncement />
         <ElMain class="workspace-main">
           <ElAlert v-if="exportError" :title="exportError" type="error" show-icon class="export-alert" @close="exportError = ''"/>
           <DataOverview v-if="activeView === 'overview'" :navigating="navigating" @plans="showPlans" @open-plan="openOverviewPlan"/>
+          <MarketRants v-else-if="activeView === 'rants'" ref="rantsRef" :navigating="navigating"/>
           <OpeningPlans v-else ref="plansRef"/>
         </ElMain>
         <ElFooter height="auto" class="app-footer"><ElText type="info" size="small">TradeLog · 记下每一次入场的想法。</ElText></ElFooter>
       </ElContainer>
     </ElContainer>
-    <ElDrawer v-model="mobileMenu" title="工作空间" direction="ltr" size="264px" class="navigation-drawer"><AppNavigation :active-view="activeView" :navigating="navigating" :exporting="exporting" @overview="showOverview" @plans="showPlans" @export="exportData" @help="showHelp"/></ElDrawer>
+    <ElDrawer v-model="mobileMenu" title="工作空间" direction="ltr" size="264px" class="navigation-drawer"><AppNavigation :active-view="activeView" :navigating="navigating" :exporting="exporting" @overview="showOverview" @rants="showRants" @plans="showPlans" @export="exportData" @help="showHelp"/></ElDrawer>
     <HelpDialog v-model="help"/>
   </ElConfigProvider>
 </template>

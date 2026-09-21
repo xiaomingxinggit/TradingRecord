@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ElButton, ElCard, ElDivider, ElIcon, ElLink, ElMenu, ElMenuItem, ElScrollbar, ElText } from 'element-plus'
-import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, LayoutDashboard, ShieldCheck } from 'lucide-vue-next'
+import { ArrowDownToLine, ArrowRight, ChartNoAxesColumnIncreasing, ClipboardPenLine, LayoutDashboard, MessageSquareText, ShieldCheck } from 'lucide-vue-next'
 
-defineProps<{ exporting: boolean; activeView: 'overview' | 'plans'; navigating: boolean }>()
-const emit = defineEmits<{ overview: []; plans: []; export: []; help: [] }>()
+defineProps<{ exporting: boolean; activeView: 'overview' | 'rants' | 'plans'; navigating: boolean }>()
+const emit = defineEmits<{ overview: []; rants: []; plans: []; export: []; help: [] }>()
 </script>
 
 <template>
@@ -12,8 +12,9 @@ const emit = defineEmits<{ overview: []; plans: []; export: []; help: [] }>()
     <ElScrollbar class="navigation-scroll">
       <div class="navigation-content">
         <ElText tag="p" type="info" size="small" class="nav-label">工作空间</ElText>
-        <ElMenu :key="`${activeView}-${navigating}`" :default-active="activeView" class="workspace-menu" @select="value => value === 'overview' ? emit('overview') : emit('plans')">
+        <ElMenu :key="`${activeView}-${navigating}`" :default-active="activeView" class="workspace-menu" @select="value => value === 'overview' ? emit('overview') : value === 'rants' ? emit('rants') : emit('plans')">
           <ElMenuItem index="overview" :disabled="navigating"><ElIcon><LayoutDashboard/></ElIcon><span>数据概览</span></ElMenuItem>
+          <ElMenuItem index="rants" :disabled="navigating"><ElIcon><MessageSquareText/></ElIcon><span>行情吐槽</span></ElMenuItem>
           <ElMenuItem index="plans" :disabled="navigating"><ElIcon><ClipboardPenLine/></ElIcon><span>交易计划</span></ElMenuItem>
         </ElMenu>
         <ElDivider/>

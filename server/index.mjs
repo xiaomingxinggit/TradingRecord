@@ -7,6 +7,7 @@ import { createPlanOrdersRouter } from './plan-orders.mjs';
 import { createPlanEventsRouter } from './plan-events-router.mjs';
 import { createPlanReviewsRouter } from './plan-reviews-router.mjs';
 import { mountOrderOcr } from './order-ocr-route.mjs';
+import { createMarketRantsRouter } from './market-rants.mjs';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const publicError = (status, message) => Object.assign(new Error(message), { status });
@@ -31,6 +32,7 @@ export function createApp({ dataDir = join(projectDir, 'data') } = {}) {
   });
   mountOrderOcr(app);
   app.get('/api/overview', (_req, res) => res.json(app.locals.store.overview.get()));
+  app.use('/api/market-rants', createMarketRantsRouter(app.locals.store.marketRants));
   app.use('/api/plans/:planId/orders', createPlanOrdersRouter(app.locals.store.orders));
   app.use('/api/plans/:planId/events', createPlanEventsRouter(app.locals.store.events));
   app.use('/api/plans/:planId/review', createPlanReviewsRouter(app.locals.store.reviews));

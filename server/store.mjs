@@ -6,6 +6,7 @@ import { createOrderStore } from './orders.mjs';
 import { createPlanEventStore } from './plan-events.mjs';
 import { createPlanReviewStore } from './plan-reviews.mjs';
 import { createOverviewStore } from './overview.mjs';
+import { createMarketRantStore } from './market-rants.mjs';
 
 export function createStore(dataDir) {
   mkdirSync(dataDir, { recursive: true });
@@ -19,7 +20,8 @@ export function createStore(dataDir) {
     events = createPlanEventStore(db);
     reviews = createPlanReviewStore(db);
     const overview = createOverviewStore(db);
-    return { plans, orders, events, reviews, overview, close: () => db.close() };
+    const marketRants = createMarketRantStore(db);
+    return { plans, orders, events, reviews, overview, marketRants, close: () => db.close() };
   } catch (error) {
     db.close();
     throw error;

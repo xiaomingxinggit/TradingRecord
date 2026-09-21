@@ -10,9 +10,17 @@ const sections = ref(['overview'])
     <ElCollapse v-model="sections">
       <ElCollapseItem title="数据概览" name="overview">
         <div class="page-stack">
-          <ElText>工作空间默认打开数据概览，位于交易计划上方。看板汇总本机全部已保存计划、关联订单、已平仓订单、计划事件和复盘，不受计划列表筛选影响；进入页面会读取最新数据，也可手动刷新。</ElText>
+          <ElText>工作空间依次为数据概览、行情吐槽和交易计划，默认打开数据概览。看板汇总本机全部已保存计划、关联订单、已平仓订单、计划事件和复盘，不受计划列表筛选影响；进入页面会读取最新数据，也可手动刷新。</ElText>
           <ElText>状态分布按当前状态统计；常用品种按计划数量展示前 5，占比以全部计划为分母，忽略品种首尾空格并按大写归类。至少保存一项复盘内容即计为已完成，复盘覆盖率的分母包括草稿和未执行计划。</ElText>
           <ElText>近期动态展示最近有活动的 6 份计划，包含计划、订单、事件或复盘的更新；点击“查看”进入对应计划。未保存输入和识别草稿不计入统计，看板不计算账户收益。</ElText>
+        </div>
+      </ElCollapseItem>
+      <ElCollapseItem title="行情吐槽" name="rants">
+        <div class="page-stack">
+          <ElText>随手记录行情感想，按发布时间倒序回看。每条最多 2000 字、4 张 PNG、JPEG 或 WebP 图片，每张不超过 5 MB；文字或图片至少有一项，也可以只发图片。</ElText>
+          <ElText>点击“添加图片”或 Ctrl + V 粘贴，待发布图片可预览、移除。发布后文字与原图一同保存在本机，点击图片可放大查看；当前不提供编辑、删除、评论或点赞。</ElText>
+          <ElText>切换工作空间板块会提示未发布的草稿，刷新或关闭页面由浏览器提示；发布期间暂时不能切换，失败后保留输入。刷新时间线不会清空草稿。</ElText>
+          <ElText>行情吐槽独立于交易计划，不纳入数据概览统计，也不包含在交易计划 ZIP 中。备份吐槽请停服后完整复制 data 文件夹。</ElText>
         </div>
       </ElCollapseItem>
       <ElCollapseItem title="填写交易计划" name="plans">
@@ -53,7 +61,7 @@ const sections = ref(['overview'])
       </ElCollapseItem>
       <ElCollapseItem title="导出与备份" name="export">
         <div class="page-stack">
-          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图、关联订单、人类可读的计划事件及计划复盘，不包含未保存草稿、复盘修改或 OCR 元数据。完整解压后可离线阅读。</ElText>
+          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图、关联订单、人类可读的计划事件及计划复盘，不包含行情吐槽、未保存草稿、复盘修改或 OCR 元数据。完整解压后可离线阅读。</ElText>
           <ElAlert title="ZIP 是阅读资料，不能恢复数据库。升级或回退前，先停止所有使用数据库的服务，再完整备份 data 文件夹（含可能存在的 WAL / SHM）。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
