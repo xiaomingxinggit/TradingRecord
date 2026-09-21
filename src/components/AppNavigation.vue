@@ -14,8 +14,8 @@ const emit = defineEmits<{ overview: []; rants: []; plans: []; export: []; help:
         <ElText tag="p" type="info" size="small" class="nav-label">工作空间</ElText>
         <ElMenu :key="`${activeView}-${navigating}`" :default-active="activeView" class="workspace-menu" @select="value => value === 'overview' ? emit('overview') : value === 'rants' ? emit('rants') : emit('plans')">
           <ElMenuItem index="overview" :disabled="navigating"><ElIcon><LayoutDashboard/></ElIcon><span>数据概览</span></ElMenuItem>
-          <ElMenuItem index="rants" :disabled="navigating"><ElIcon><MessageSquareText/></ElIcon><span>行情吐槽</span></ElMenuItem>
           <ElMenuItem index="plans" :disabled="navigating"><ElIcon><ClipboardPenLine/></ElIcon><span>交易计划</span></ElMenuItem>
+          <ElMenuItem index="rants" :disabled="navigating"><ElIcon><MessageSquareText/></ElIcon><span>行情吐槽</span></ElMenuItem>
         </ElMenu>
         <ElDivider/>
         <ElText tag="p" type="info" size="small" class="nav-label">数据管理</ElText>
