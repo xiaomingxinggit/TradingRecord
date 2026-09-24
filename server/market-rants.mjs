@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { Router } from 'express';
+import { Router, json } from 'express';
 import multer from 'multer';
 import { MAX_IMAGE_SIZE, MAX_IMAGES, imageTypes, validateImages } from './images.mjs';
 
 const MAX_CONTENT_LENGTH = 2000;
+const MAX_REPLY_LENGTH = 500;
+const PAGE_SIZE = 10;
 const publicError = (status, message) => Object.assign(new Error(message), { status });
 const imageMetadata = (rantId, image) => ({
   id: image.id, name: image.name, mimeType: image.mimeType, size: image.size,
@@ -29,22 +31,46 @@ export function createMarketRantStore(db) {
       content BLOB NOT NULL,
       UNIQUE (rant_id, sort_order)
     );
+    CREATE TABLE IF NOT EXISTS market_rant_replies_v1 (
+      id TEXT PRIMARY KEY,
+      rant_id TEXT NOT NULL REFERENCES market_rants_v1(id),
+      content TEXT NOT NULL CHECK (length(content) > 0 AND length(content) <= 500),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS market_rant_replies_rant_created_v1
+      ON market_rant_replies_v1(rant_id, created_at ASC);
   `);
-  const listRants = db.prepare('SELECT id, content, created_at AS createdAt FROM market_rants_v1 ORDER BY created_at DESC, rowid DESC');
-  const listImages = db.prepare('SELECT id, rant_id AS rantId, name, mime_type AS mimeType, size FROM market_rant_images_v1 ORDER BY rant_id, sort_order');
+  const countRants = db.prepare('SELECT COUNT(*) AS total FROM market_rants_v1');
+  const listRants = db.prepare('SELECT id, content, created_at AS createdAt FROM market_rants_v1 ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?');
   const insertRant = db.prepare('INSERT INTO market_rants_v1 (id, content, created_at) VALUES (?, ?, ?)');
   const insertImage = db.prepare('INSERT INTO market_rant_images_v1 (id, rant_id, name, mime_type, size, sort_order, content) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const getImage = db.prepare('SELECT mime_type AS mimeType, content FROM market_rant_images_v1 WHERE rant_id = ? AND id = ?');
+  const getRant = db.prepare('SELECT id FROM market_rants_v1 WHERE id = ?');
+  const insertReply = db.prepare('INSERT INTO market_rant_replies_v1 (id, rant_id, content, created_at) VALUES (?, ?, ?, ?)');
   return {
-    list() {
-      // Keep metadata consistent without loading any screenshot BLOBs into the timeline response.
+    list(requestedPage) {
+      // Count, page, images and replies share one snapshot; screenshot BLOBs stay out of the response.
       db.exec('BEGIN');
       try {
-        const rants = listRants.all().map((rant) => ({ ...rant, images: [] }));
+        const total = countRants.get().total;
+        const totalPages = Math.ceil(total / PAGE_SIZE);
+        const page = Math.min(requestedPage, Math.max(totalPages, 1));
+        const rants = listRants.all(PAGE_SIZE, (page - 1) * PAGE_SIZE)
+          .map((rant) => ({ ...rant, images: [], replies: [], replyCount: 0 }));
         const byId = new Map(rants.map((rant) => [rant.id, rant]));
-        for (const image of listImages.all()) byId.get(image.rantId)?.images.push(imageMetadata(image.rantId, image));
+        if (rants.length) {
+          const placeholders = rants.map(() => '?').join(', ');
+          const images = db.prepare(`SELECT id, rant_id AS rantId, name, mime_type AS mimeType, size FROM market_rant_images_v1 WHERE rant_id IN (${placeholders}) ORDER BY rant_id, sort_order`).all(...byId.keys());
+          const replies = db.prepare(`SELECT id, rant_id AS rantId, content, created_at AS createdAt FROM market_rant_replies_v1 WHERE rant_id IN (${placeholders}) ORDER BY created_at ASC, rowid ASC`).all(...byId.keys());
+          for (const image of images) byId.get(image.rantId).images.push(imageMetadata(image.rantId, image));
+          for (const reply of replies) {
+            const rant = byId.get(reply.rantId);
+            rant.replies.push(reply);
+            rant.replyCount++;
+          }
+        }
         db.exec('COMMIT');
-        return rants;
+        return { rants, page, pageSize: PAGE_SIZE, total, totalPages };
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     },
     create(content, files) {
@@ -62,7 +88,20 @@ export function createMarketRantStore(db) {
         images.forEach((image, index) => insertImage.run(image.id, rant.id, image.name, image.mimeType, image.size, index, image.buffer));
         db.exec('COMMIT');
       } catch (error) { db.exec('ROLLBACK'); throw error; }
-      return { ...rant, images: images.map((image) => imageMetadata(rant.id, image)) };
+      return { ...rant, images: images.map((image) => imageMetadata(rant.id, image)), replies: [], replyCount: 0 };
+    },
+    reply(rantId, content) {
+      if (typeof content !== 'string') throw publicError(400, '回复须为文字。');
+      content = content.trim();
+      if (!content || content.length > MAX_REPLY_LENGTH) throw publicError(400, '回复须为 1 至 500 字的文字。');
+      const reply = { id: randomUUID(), rantId, content, createdAt: new Date().toISOString() };
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if (!getRant.get(rantId)) throw publicError(404, '未找到这条行情吐槽。');
+        insertReply.run(reply.id, rantId, content, reply.createdAt);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+      return reply;
     },
     getImage(rantId, imageId) { return getImage.get(rantId, imageId) ?? null; },
   };
@@ -93,12 +132,27 @@ export function createMarketRantsRouter(store) {
       next();
     });
   };
-  router.get('/', (_req, res) => res.json({ rants: store.list() }));
+  router.get('/', (req, res) => {
+    const rawPage = req.query.page ?? '1';
+    if (typeof rawPage !== 'string' || !/^[1-9]\d*$/.test(rawPage) || !Number.isSafeInteger(Number(rawPage))) {
+      throw publicError(400, '页码必须是正整数。');
+    }
+    res.json(store.list(Number(rawPage)));
+  });
   router.post('/', readUpload, (req, res) => {
     if (typeof req.body?.content !== 'string' || Object.keys(req.body).some((key) => key !== 'content')) {
       throw publicError(400, '请通过唯一的 content 字段提交正文；纯图片吐槽的正文可为空。');
     }
     res.status(201).json({ rant: store.create(req.body.content, req.files ?? []) });
+  });
+  router.post('/:rantId/replies', (req, res, next) => {
+    if (!req.is('application/json')) return next(publicError(400, '请使用 JSON 提交回复。'));
+    next();
+  }, json({ limit: '4kb' }), (req, res) => {
+    if (!req.body || Array.isArray(req.body) || Object.keys(req.body).length !== 1 || typeof req.body.content !== 'string') {
+      throw publicError(400, '请仅通过 content 字段提交回复文字。');
+    }
+    res.status(201).json({ reply: store.reply(req.params.rantId, req.body.content) });
   });
   router.get('/:rantId/images/:imageId', (req, res) => {
     const image = store.getImage(req.params.rantId, req.params.imageId);
