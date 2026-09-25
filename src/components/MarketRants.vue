@@ -4,7 +4,7 @@ import { ElAlert, ElButton, ElCard, ElEmpty, ElForm, ElFormItem, ElImage, ElImag
 import { ImagePlus, MessageSquareText, RefreshCw, Send, X } from 'lucide-vue-next'
 
 interface RantImage { id: string; name: string; mimeType: string; size: number; url: string }
-interface RantReply { id: string; rantId: string; content: string; createdAt: string }
+interface RantReply { id: string; rantId: string; content: string; createdAt: string; images: RantImage[] }
 interface Rant { id: string; content: string; createdAt: string; images: RantImage[]; replies: RantReply[]; replyCount: number }
 interface DraftImage { id: number; file: File; url: string }
 
@@ -14,9 +14,10 @@ const loading = ref(false), publishing = ref(false), loaded = ref(false), confir
 const loadError = ref(''), publishError = ref(''), imageError = ref('')
 const page = ref(1), total = ref(0), pageSize = ref(10)
 const replyDrafts = ref<Record<string, string>>({}), replyErrors = ref<Record<string, string>>({}), savingReplyId = ref('')
+const replyImages = ref<Record<string, DraftImage[]>>({}), replyImageErrors = ref<Record<string, string>>({})
 const fileInput = ref<HTMLInputElement>()
 const previewUrls = ref<string[]>([]), previewIndex = ref(0), previewOpen = ref(false)
-const dirty = computed(() => !!content.value.length || !!draftImages.value.length || Object.values(replyDrafts.value).some(value => !!value.length))
+const dirty = computed(() => !!content.value.length || !!draftImages.value.length || Object.values(replyDrafts.value).some(value => !!value.length) || Object.values(replyImages.value).some(images => !!images.length))
 const disabled = computed(() => loading.value || publishing.value || !!savingReplyId.value || confirming.value || props.navigating)
 const canPublish = computed(() => !!content.value.trim() || !!draftImages.value.length)
 const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -39,7 +40,7 @@ async function load(requestedPage = page.value) {
   loadController = new AbortController()
   try {
     const result = await readJson<{ rants: Rant[]; page: number; pageSize: number; total: number }>(await fetch(`/api/market-rants?page=${requestedPage}`, { signal: loadController.signal }))
-    if (!Array.isArray(result.rants) || !Number.isSafeInteger(result.page) || result.page < 1 || result.pageSize !== 10 || !Number.isSafeInteger(result.total) || result.total < 0 || result.rants.some(rant => !Array.isArray(rant.images) || !Array.isArray(rant.replies) || rant.replyCount !== rant.replies.length)) {
+    if (!Array.isArray(result.rants) || !Number.isSafeInteger(result.page) || result.page < 1 || result.pageSize !== 10 || !Number.isSafeInteger(result.total) || result.total < 0 || result.rants.some(rant => !Array.isArray(rant.images) || !Array.isArray(rant.replies) || rant.replyCount !== rant.replies.length || rant.replies.some(reply => !Array.isArray(reply.images)))) {
       throw new Error('时间线响应无效，请确认后端已更新并重新启动。')
     }
     if (mounted) { rants.value = result.rants; page.value = result.page; pageSize.value = result.pageSize; total.value = result.total; loaded.value = true }
@@ -50,28 +51,55 @@ async function load(requestedPage = page.value) {
     loadController = undefined
   }
 }
-function addImages(files: File[]) {
+function addImages(files: File[], rantId?: string) {
   if (disabled.value) return
-  imageError.value = ''
-  if (draftImages.value.length + files.length > 4) { imageError.value = '每条吐槽最多 4 张图片，请先移除多余图片。'; return }
+  if (rantId) replyImageErrors.value[rantId] = ''
+  else imageError.value = ''
+  const existing = rantId ? (replyImages.value[rantId] ?? []) : draftImages.value
+  if (existing.length + files.length > 4) {
+    const message = `每条${rantId ? '回复' : '吐槽'}最多 4 张图片，请先移除多余图片。`
+    if (rantId) replyImageErrors.value[rantId] = message
+    else imageError.value = message
+    return
+  }
   for (const file of files) {
     const problem = !allowedTypes.has(file.type) ? '仅支持 PNG、JPEG 和 WebP 图片。'
       : !file.size ? '不能添加空图片。' : file.size > 5 * 1024 * 1024 ? '每张图片不能超过 5 MB。' : ''
-    if (problem) { imageError.value = `${file.name}：${problem}`; return }
+    if (problem) {
+      if (rantId) replyImageErrors.value[rantId] = `${file.name}：${problem}`
+      else imageError.value = `${file.name}：${problem}`
+      return
+    }
   }
-  draftImages.value.push(...files.map(file => ({ id: ++imageId, file, url: URL.createObjectURL(file) })))
+  const added = files.map(file => ({ id: ++imageId, file, url: URL.createObjectURL(file) }))
+  if (rantId) (replyImages.value[rantId] ??= []).push(...added)
+  else draftImages.value.push(...added)
 }
 function selectImages(event: Event) {
   const input = event.target as HTMLInputElement
   addImages(Array.from(input.files || []))
   input.value = ''
 }
-function removeImage(id: number) {
+function selectReplyImages(event: Event, rantId: string) {
+  const input = event.target as HTMLInputElement
+  addImages(Array.from(input.files || []), rantId)
+  input.value = ''
+}
+function openReplyFiles(rantId: string) {
+  document.getElementById(`reply-images-${rantId}`)?.click()
+}
+function removeImage(id: number, rantId?: string) {
   if (disabled.value) return
-  const image = draftImages.value.find(item => item.id === id)
+  const images = rantId ? (replyImages.value[rantId] ?? []) : draftImages.value
+  const image = images.find(item => item.id === id)
   if (image) URL.revokeObjectURL(image.url)
-  draftImages.value = draftImages.value.filter(item => item.id !== id)
-  imageError.value = ''
+  if (rantId) {
+    replyImages.value[rantId] = images.filter(item => item.id !== id)
+    delete replyImageErrors.value[rantId]
+  } else {
+    draftImages.value = images.filter(item => item.id !== id)
+    imageError.value = ''
+  }
 }
 function clearDraft() {
   previewOpen.value = false
@@ -82,6 +110,19 @@ function clearDraft() {
   imageError.value = ''
   publishError.value = ''
 }
+function clearReplyDraft(rantId: string) {
+  replyImages.value[rantId]?.forEach(image => URL.revokeObjectURL(image.url))
+  delete replyImages.value[rantId]
+  delete replyDrafts.value[rantId]
+  delete replyImageErrors.value[rantId]
+  delete replyErrors.value[rantId]
+}
+function clearReplyDrafts() {
+  Object.keys(replyImages.value).forEach(clearReplyDraft)
+  replyDrafts.value = {}
+  replyErrors.value = {}
+  replyImageErrors.value = {}
+}
 function preview(urls: string[], index: number) {
   previewUrls.value = urls
   previewIndex.value = index
@@ -90,13 +131,13 @@ function preview(urls: string[], index: number) {
 function pasteImages(event: ClipboardEvent) {
   if (disabled.value || previewOpen.value || event.defaultPrevented) return
   if (event.target instanceof Element && event.target.closest('[role="dialog"]')) return
-  if (event.target instanceof Element && event.target.closest('.reply-composer')) return
+  const replyComposer = event.target instanceof Element ? event.target.closest<HTMLElement>('.reply-composer') : null
   const files = Array.from(event.clipboardData?.items || [])
     .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
     .map(item => item.getAsFile()).filter((file): file is File => !!file)
   if (!files.length) return
   event.preventDefault()
-  addImages(files)
+  addImages(files, replyComposer?.dataset.rantId)
 }
 async function publish() {
   if (disabled.value || !canPublish.value) return
@@ -121,14 +162,18 @@ async function publish() {
 async function publishReply(rantId: string) {
   if (disabled.value) return
   const message = (replyDrafts.value[rantId] ?? '').trim()
-  if (!message || message.length > 500) return
+  const images = replyImages.value[rantId] ?? []
+  if ((!message && !images.length) || message.length > 500) return
   savingReplyId.value = rantId
   delete replyErrors.value[rantId]
+  const body = new FormData()
+  body.append('content', message)
+  images.forEach(image => body.append('images', image.file, image.file.name))
   try {
     const result = await readJson<{ reply: RantReply }>(await fetch(`/api/market-rants/${encodeURIComponent(rantId)}/replies`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: message }),
+      method: 'POST', body,
     }))
-    if (!result.reply?.id || result.reply.rantId !== rantId) throw new Error('回复响应无效，请刷新时间线确认是否已保存，再决定是否重新发送。')
+    if (!result.reply?.id || result.reply.rantId !== rantId || !Array.isArray(result.reply.images)) throw new Error('回复响应无效，请刷新时间线确认是否已保存，再决定是否重新发送。')
     if (!mounted) return
     const rant = rants.value.find(item => item.id === rantId)
     if (rant) {
@@ -136,7 +181,7 @@ async function publishReply(rantId: string) {
       rant.replies.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       rant.replyCount++
     }
-    delete replyDrafts.value[rantId]
+    clearReplyDraft(rantId)
     ElMessage.success('回复已保存在本机')
   } catch (error) {
     if (mounted) replyErrors.value[rantId] = `${(error as Error).message} 输入已保留；若连接中断，可先刷新时间线确认是否已保存。`
@@ -152,8 +197,7 @@ async function confirmDiscard() {
       confirmButtonText: '放弃草稿', cancelButtonText: '继续写', type: 'warning', closeOnClickModal: false,
     })
     clearDraft()
-    replyDrafts.value = {}
-    replyErrors.value = {}
+    clearReplyDrafts()
     return true
   } catch { return false }
   finally { confirming.value = false }
@@ -170,6 +214,7 @@ onBeforeUnmount(() => {
   mounted = false
   loadController?.abort()
   clearDraft()
+  clearReplyDrafts()
   window.removeEventListener('paste', pasteImages)
   window.removeEventListener('beforeunload', beforeUnload)
 })
@@ -221,13 +266,26 @@ defineExpose({ confirmDiscard })
               <ol v-if="rant.replies.length" class="reply-list">
                 <li v-for="reply in rant.replies" :key="reply.id" class="reply-item">
                   <time :datetime="reply.createdAt">{{ dateTime(reply.createdAt) }}</time>
-                  <p>{{ reply.content }}</p>
+                  <p v-if="reply.content">{{ reply.content }}</p>
+                  <div v-if="reply.images.length" class="rant-images reply-images" :class="{ 'single-image': reply.images.length === 1 }">
+                    <button v-for="(image, index) in reply.images" :key="image.id" type="button" class="image-preview-button" :aria-label="`查看回复图片 ${index + 1}`" @click="preview(reply.images.map(item => item.url), index)"><ElImage :src="image.url" :alt="image.name" fit="cover" loading="lazy"><template #error><span class="image-failed">图片加载失败，点击重试预览</span></template></ElImage></button>
+                  </div>
                 </li>
               </ol>
-              <ElForm class="reply-composer" :disabled="disabled" @submit.prevent="publishReply(rant.id)">
+              <ElForm class="reply-composer" :data-rant-id="rant.id" :disabled="disabled" @submit.prevent="publishReply(rant.id)">
                 <ElInput v-model="replyDrafts[rant.id]" type="textarea" :rows="2" maxlength="500" show-word-limit placeholder="写一句回复……" :aria-label="`回复 ${dateTime(rant.createdAt)} 的帖子`"/>
+                <div v-if="replyImages[rant.id]?.length" class="rant-images draft-images reply-draft-images">
+                  <div v-for="(image, index) in replyImages[rant.id]" :key="image.id" class="draft-image">
+                    <button type="button" class="image-preview-button" :aria-label="`预览待发布回复图片 ${index + 1}`" @click="preview((replyImages[rant.id] ?? []).map(item => item.url), index)"><ElImage :src="image.url" :alt="image.file.name" fit="cover"/></button>
+                    <ElButton class="remove-image" circle size="small" :disabled="disabled" :aria-label="`移除回复图片 ${index + 1}`" @click="removeImage(image.id, rant.id)"><X :size="14"/></ElButton>
+                  </div>
+                </div>
+                <ElAlert v-if="replyImageErrors[rant.id]" :title="replyImageErrors[rant.id]" type="error" show-icon :closable="false" class="reply-error"/>
                 <ElAlert v-if="replyErrors[rant.id]" :title="replyErrors[rant.id]" type="error" show-icon :closable="false" class="reply-error"/>
-                <div class="reply-actions"><ElButton native-type="submit" type="primary" size="small" :loading="savingReplyId === rant.id" :disabled="disabled || !replyDrafts[rant.id]?.trim()">{{ savingReplyId === rant.id ? '正在回复' : '发布回复' }}</ElButton></div>
+                <div class="reply-actions">
+                  <div class="reply-image-action"><input :id="`reply-images-${rant.id}`" type="file" multiple accept="image/png,image/jpeg,image/webp" hidden :disabled="disabled" @change="selectReplyImages($event, rant.id)"/><ElButton size="small" :disabled="disabled || (replyImages[rant.id]?.length ?? 0) >= 4" @click="openReplyFiles(rant.id)"><ImagePlus :size="15"/>添加图片 {{ replyImages[rant.id]?.length ?? 0 }}/4</ElButton><span>可在回复框粘贴图片 · 每张 ≤ 5 MB</span></div>
+                  <ElButton native-type="submit" type="primary" size="small" :loading="savingReplyId === rant.id" :disabled="disabled || (!replyDrafts[rant.id]?.trim() && !replyImages[rant.id]?.length)">{{ savingReplyId === rant.id ? '正在回复' : '发布回复' }}</ElButton>
+                </div>
               </ElForm>
             </section>
           </article>
@@ -241,6 +299,6 @@ defineExpose({ confirmDiscard })
 
 <style scoped>
 .rants-page{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:26px}.rants-header{display:flex;align-items:center;justify-content:space-between;gap:22px}.rants-eyebrow{font-size:11px;letter-spacing:2px;color:var(--el-color-primary);margin:0 0 12px}.rants-header h1{font-size:30px;line-height:1.3;margin:0;color:var(--el-text-color-primary)}.rants-subtitle{color:var(--el-text-color-secondary);margin:12px 0 0;line-height:1.7}.rants-badge{display:flex;align-items:center;gap:8px;flex-shrink:0;padding:10px 14px;border-radius:20px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.rant-composer{border-radius:14px;--el-card-padding:26px}.composer-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:22px}.composer-heading h2,.feed-heading h2{font-size:17px;margin:0;line-height:1.5}.composer-heading>span,.image-actions>span,.feed-heading span{font-size:12px;color:var(--el-text-color-secondary);line-height:1.7}.rant-composer :deep(.el-textarea__inner){line-height:1.8}.rants-page .el-button :deep(span){gap:7px}.composer-footer{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:20px}.image-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.composer-alert{margin-top:14px}.rant-images{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;max-width:720px}.image-preview-button{padding:0;display:block;min-width:0;aspect-ratio:4/3;border:1px solid var(--el-border-color-lighter);border-radius:9px;overflow:hidden;background:var(--el-fill-color-light);cursor:zoom-in;color:var(--el-text-color-secondary)}.image-preview-button:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:3px}.image-preview-button>.el-image{display:block;width:100%;height:100%}.image-failed{display:grid;place-content:center;height:100%;padding:10px;font-size:12px;line-height:1.6}.draft-image{position:relative;min-width:0}.draft-image .image-preview-button{width:100%}.remove-image{position:absolute;right:6px;top:6px;background:var(--el-bg-color);box-shadow:var(--el-box-shadow-light)}.single-image{grid-template-columns:minmax(0,360px)}.feed-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.feed-heading>div{display:flex;align-items:baseline;gap:14px}.feed-empty{border-radius:12px}.feed-loading{padding:20px 0}.rant-timeline{list-style:none;margin:0;padding:0 0 0 14px}.rant-item{position:relative;border-left:2px solid var(--el-border-color-light);padding:0 0 20px 26px}.rant-item:last-child{padding-bottom:0}.timeline-dot{position:absolute;left:-7px;top:25px;width:12px;height:12px;border-radius:50%;background:var(--el-color-primary);border:3px solid var(--el-color-primary-light-8);box-sizing:border-box}.rant-entry{border:1px solid var(--el-border-color-lighter);border-radius:12px;background:var(--el-bg-color);padding:22px 24px}.entry-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;font-size:12px}.entry-heading>span{color:var(--el-color-primary);font-weight:600}.entry-heading time{color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.rant-content{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85;font-size:14px;margin:0;color:var(--el-text-color-primary)}.rant-content+.rant-images{margin-top:18px}.rant-feed>.el-alert{margin-bottom:20px}
-.reply-section{margin-top:22px;padding-top:18px;border-top:1px solid var(--el-border-color-lighter)}.reply-section h3{font-size:13px;color:var(--el-text-color-regular);margin:0 0 14px}.reply-list{list-style:none;padding:0;margin:0 0 16px;display:flex;flex-direction:column;gap:10px}.reply-item{padding:11px 14px;border-radius:9px;background:var(--el-fill-color-light)}.reply-item time{font-size:11px;color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.reply-item p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-size:13px;color:var(--el-text-color-primary)}.reply-composer :deep(.el-textarea__inner){line-height:1.7}.reply-error{margin-top:10px}.reply-actions{display:flex;justify-content:flex-end;margin-top:10px}.feed-pagination{display:flex;justify-content:center;flex-wrap:wrap;gap:4px;margin-top:22px}
-@media(max-width:760px){.rants-page{gap:20px}.rants-header{align-items:flex-start;flex-direction:column;gap:12px}.rants-header h1{font-size:26px}.rants-subtitle{font-size:13px}.rant-composer{--el-card-padding:18px}.composer-heading{align-items:flex-start;flex-direction:column;gap:6px;margin-bottom:18px}.composer-footer{align-items:stretch;flex-direction:column;gap:16px}.image-actions{gap:10px}.image-actions>span{font-size:11px}.composer-footer>.el-button{width:100%}.rant-images{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.single-image{grid-template-columns:minmax(0,1fr)}.feed-heading>div{align-items:flex-start;flex-direction:column;gap:5px}.feed-heading h2{font-size:16px}.rant-timeline{padding-left:6px}.rant-item{padding-left:17px}.rant-entry{padding:17px 15px}.entry-heading{align-items:flex-start;flex-direction:column;gap:7px}.rant-content{font-size:13px}}
+.reply-section{margin-top:22px;padding-top:18px;border-top:1px solid var(--el-border-color-lighter)}.reply-section h3{font-size:13px;color:var(--el-text-color-regular);margin:0 0 14px}.reply-list{list-style:none;padding:0;margin:0 0 16px;display:flex;flex-direction:column;gap:10px}.reply-item{padding:11px 14px;border-radius:9px;background:var(--el-fill-color-light)}.reply-item time{font-size:11px;color:var(--el-text-color-secondary);font-variant-numeric:tabular-nums}.reply-item p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-size:13px;color:var(--el-text-color-primary)}.reply-images{margin-top:8px;max-width:520px}.reply-draft-images{margin-top:10px;max-width:520px}.reply-composer :deep(.el-textarea__inner){line-height:1.7}.reply-error{margin-top:10px}.reply-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px}.reply-image-action{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.reply-image-action>span{font-size:11px;color:var(--el-text-color-secondary)}.feed-pagination{display:flex;justify-content:center;flex-wrap:wrap;gap:4px;margin-top:22px}
+@media(max-width:760px){.rants-page{gap:20px}.rants-header{align-items:flex-start;flex-direction:column;gap:12px}.rants-header h1{font-size:26px}.rants-subtitle{font-size:13px}.rant-composer{--el-card-padding:18px}.composer-heading{align-items:flex-start;flex-direction:column;gap:6px;margin-bottom:18px}.composer-footer{align-items:stretch;flex-direction:column;gap:16px}.image-actions{gap:10px}.image-actions>span{font-size:11px}.composer-footer>.el-button{width:100%}.rant-images{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.single-image{grid-template-columns:minmax(0,1fr)}.feed-heading>div{align-items:flex-start;flex-direction:column;gap:5px}.feed-heading h2{font-size:16px}.rant-timeline{padding-left:6px}.rant-item{padding-left:17px}.rant-entry{padding:17px 15px}.entry-heading{align-items:flex-start;flex-direction:column;gap:7px}.rant-content{font-size:13px}.reply-actions{align-items:stretch;flex-direction:column}.reply-image-action{align-items:flex-start;flex-direction:column;gap:6px}.reply-actions>.el-button{width:100%}}
 </style>
