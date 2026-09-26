@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import { ElAlert, ElAside, ElBreadcrumb, ElBreadcrumbItem, ElButton, ElConfigProvider, ElContainer, ElDrawer, ElFooter, ElHeader, ElMain, ElMessage, ElSpace, ElTag, ElText, ElTooltip } from 'element-plus'
+import { ElAside, ElBreadcrumb, ElBreadcrumbItem, ElButton, ElConfigProvider, ElContainer, ElDrawer, ElFooter, ElHeader, ElMain, ElSpace, ElTag, ElText, ElTooltip } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { ChevronRight, CircleHelp, Menu, Moon, Sun } from 'lucide-vue-next'
 import { darkMode, themeAction, toggleTheme } from './ui/theme'
@@ -10,6 +10,7 @@ import DataOverview from './components/DataOverview.vue'
 import MarketRants from './components/MarketRants.vue'
 import HelpDialog from './components/HelpDialog.vue'
 import SystemAnnouncement from './components/SystemAnnouncement.vue'
+import ExportDataDialog from './components/ExportDataDialog.vue'
 
 const plansRef = ref<InstanceType<typeof OpeningPlans>>()
 const rantsRef = ref<InstanceType<typeof MarketRants>>()
@@ -17,7 +18,7 @@ type WorkspaceView = 'overview' | 'rants' | 'plans'
 const activeView = ref<WorkspaceView>('overview')
 const viewNames: Record<WorkspaceView, string> = { overview: '数据概览', rants: '行情吐槽', plans: '交易计划' }
 const navigating = ref(false)
-const mobileMenu = ref(false), help = ref(false), exporting = ref(false), exportError = ref('')
+const mobileMenu = ref(false), help = ref(false), exporting = ref(false), exportDialog = ref(false)
 async function confirmLeaveCurrentView() {
   if (activeView.value === 'plans') return await plansRef.value?.showList() ?? false
   if (activeView.value === 'rants') return await rantsRef.value?.confirmDiscard() ?? false
@@ -47,27 +48,9 @@ async function openOverviewPlan(id: string) {
   } finally { navigating.value = false }
 }
 function showHelp() { mobileMenu.value = false; help.value = true }
-async function exportData() {
+function exportData() {
   if (exporting.value) return
-  mobileMenu.value = false; exporting.value = true; exportError.value = ''
-  try {
-    const response = await fetch('/api/plans/export')
-    if (!response.ok) {
-      const result = await response.json().catch(() => null)
-      throw new Error(result?.error || '导出失败，请稍后重试。')
-    }
-    if (!response.headers.get('content-type')?.includes('application/zip')) throw new Error('导出响应不是有效的压缩包，请重启服务后重试。')
-    const file = await response.blob()
-    if (!file.size) throw new Error('导出内容为空，请稍后重试。')
-    const url = URL.createObjectURL(file)
-    const link = document.createElement('a')
-    link.href = url; link.download = '交易计划.zip'
-    document.body.appendChild(link); link.click(); link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
-    ElMessage.success('已开始下载 Markdown 与截图压缩包。')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : '导出失败，请稍后重试。'
-  } finally { exporting.value = false }
+  mobileMenu.value = false; exportDialog.value = true
 }
 </script>
 
@@ -82,7 +65,6 @@ async function exportData() {
         </ElHeader>
         <SystemAnnouncement />
         <ElMain class="workspace-main">
-          <ElAlert v-if="exportError" :title="exportError" type="error" show-icon class="export-alert" @close="exportError = ''"/>
           <DataOverview v-if="activeView === 'overview'" :navigating="navigating" @plans="showPlans" @open-plan="openOverviewPlan"/>
           <MarketRants v-else-if="activeView === 'rants'" ref="rantsRef" :navigating="navigating"/>
           <OpeningPlans v-else ref="plansRef"/>
@@ -92,5 +74,6 @@ async function exportData() {
     </ElContainer>
     <ElDrawer v-model="mobileMenu" title="工作空间" direction="ltr" size="264px" class="navigation-drawer"><AppNavigation :active-view="activeView" :navigating="navigating" :exporting="exporting" @overview="showOverview" @rants="showRants" @plans="showPlans" @export="exportData" @help="showHelp"/></ElDrawer>
     <HelpDialog v-model="help"/>
+    <ExportDataDialog v-model="exportDialog" v-model:busy="exporting"/>
   </ElConfigProvider>
 </template>

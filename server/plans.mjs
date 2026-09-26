@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MAX_IMAGE_SIZE, MAX_IMAGES, imageTypes, validateImages } from './images.mjs';
 import { Router, json } from 'express';
 import multer from 'multer';
-import { exportPlansArchive } from './export.mjs';
+import { exportArchiveFilename, exportPlansArchive } from './export.mjs';
 
 const timeframes = new Set(['', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1']);
 const marketStates = new Set(['uptrend', 'downtrend', 'range', 'uncertain']);
@@ -118,7 +118,7 @@ export function createPlanStore(db, getOrderStore = () => null, getEventStore = 
     VALUES (?, ?, ?, ?, ?, ?, ?)`);
   const removeImage = db.prepare('DELETE FROM plan_images WHERE plan_id = ? AND id = ?');
   const reorderImage = db.prepare('UPDATE plan_images SET position = ? WHERE plan_id = ? AND id = ?');
-  const hydrate = (row) => {
+  const hydrate = (row, includeImages = true) => {
     if (!row) return null;
     const plan = JSON.parse(row.payload);
     // Responses expose only current plan fields; saved unknown fields stay private.
@@ -129,14 +129,14 @@ export function createPlanStore(db, getOrderStore = () => null, getEventStore = 
       entryPrice: plan.entryPrice ?? null, stopLoss: plan.stopLoss ?? null, takeProfit: plan.takeProfit ?? null,
       status: plan.status ?? 'draft', statusChangedAt: plan.statusChangedAt ?? null, abandonReason: plan.abandonReason ?? '',
       id: row.id, createdAt: row.created_at, updatedAt: row.updated_at,
-      images: findImages.all(row.id).map((image) => ({ ...image,
-        url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })),
+      images: includeImages ? findImages.all(row.id).map((image) => ({ ...image,
+        url: `/api/plans/${encodeURIComponent(row.id)}/images/${encodeURIComponent(image.id)}` })) : [],
     };
   };
 
   return {
     list() {
-      return allPlans.all().map(hydrate);
+      return allPlans.all().map(row => hydrate(row));
     },
     exportSnapshot() {
       // Read plans and original images from the same snapshot, then finish the
@@ -146,7 +146,7 @@ export function createPlanStore(db, getOrderStore = () => null, getEventStore = 
         const orderStore = getOrderStore();
         const eventStore = getEventStore();
         const reviewStore = getReviewStore();
-        const plans = allPlans.all().map((row) => ({ ...hydrate(row), images: exportImages.all(row.id),
+        const plans = allPlans.all().map((row) => ({ ...hydrate(row, false), images: exportImages.all(row.id),
           orders: orderStore ? orderStore.exportForPlan(row.id) : [],
           events: eventStore ? eventStore.exportForPlan(row.id) : [],
           review: reviewStore ? reviewStore.exportForPlan(row.id) : null }));
@@ -273,14 +273,16 @@ export function createPlansRouter(store) {
   router.get('/export', async (_req, res) => {
     try {
       const { plans } = store.exportSnapshot();
-      const archive = await exportPlansArchive(plans);
+      const exportedAt = new Date().toISOString();
+      const archive = await exportPlansArchive(plans, exportedAt);
       res.set('Content-Type', 'application/zip');
-      res.set('Content-Disposition', `attachment; filename="trading-plans.zip"; filename*=UTF-8''${encodeURIComponent('交易计划.zip')}`);
+      res.set('Cache-Control', 'no-store');
+      res.set('Content-Disposition', `attachment; filename="trading-plans.zip"; filename*=UTF-8''${encodeURIComponent(exportArchiveFilename(exportedAt))}`);
       res.send(archive);
     } catch (error) {
       if (error.status === 409) return res.status(409).json({ error: error.message });
       console.error(error);
-      res.status(500).json({ error: '导出失败，未生成完整的 Markdown 与截图压缩包，请稍后重试。' });
+      res.status(500).json({ error: '导出失败，未生成完整的 HTML、Markdown 与截图压缩包，请稍后重试。' });
     }
   });
   router.get('/:id', (req, res) => {

@@ -342,6 +342,7 @@ function imagePreview(file: UploadFile) {
   previewIndex.value = Math.max(0, previewUrls.value.indexOf(file.url || '')); previewOpen.value = true
 }
 function pasteImages(event: ClipboardEvent) {
+  if (event.target instanceof Element && event.target.closest('.export-data-dialog')) return
   if (!editing.value || sectionTab.value !== 'plan' || actionBusy.value || previewOpen.value) return
   const images = Array.from(event.clipboardData?.items || []).filter(i => i.kind === 'file' && i.type.startsWith('image/')).map(i => i.getAsFile()).filter((f): f is File => !!f)
   if (!images.length) return

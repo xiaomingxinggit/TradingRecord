@@ -231,6 +231,7 @@ async function closeComparison(done?: () => void) {
   if (done) done(); else compareDialog.value = false
 }
 function pasteImage(event: ClipboardEvent) {
+  if (event.target instanceof Element && event.target.closest('.export-data-dialog')) return
   if (!props.active || locked.value) return
   const files = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'))
   if (!files.length) return

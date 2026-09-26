@@ -62,7 +62,9 @@ const sections = ref(['overview'])
       </ElCollapseItem>
       <ElCollapseItem title="导出与备份" name="export">
         <div class="page-stack">
-          <ElText>导出交易计划.zip 包含交易计划.md 和 images，覆盖所有已保存计划、截图、关联订单、人类可读的计划事件及计划复盘，不包含行情吐槽、未保存草稿、复盘修改或 OCR 元数据。完整解压后可离线阅读。</ElText>
+          <ElText>点击“导出数据”查看范围后下载带 UTC 导出时间的 ZIP。覆盖全部状态的已保存交易计划，不受列表筛选或分页影响，包含当前计划、原始行情截图、关联订单、计划事件（含修改原因和当时情绪）及最新复盘。不包含行情吐槽及回复、未保存输入、OCR 原图、识别和更新草稿或识别元数据。</ElText>
+          <ElText>完整解压 ZIP 后，用浏览器打开交易计划.html，通过目录和数量摘要离线阅读，也可打印；页面随浏览器日夜主题调整。也可用 Markdown 阅读器打开交易计划.md。保留 images 文件夹的相对位置以显示截图。应用时间标明 UTC，订单报告时间保留原文、不转换时区。</ElText>
+          <ElText>打开导出弹窗会保留当前工作空间的未保存输入；下载期间显示忙碌状态，失败后可在弹窗内重试。</ElText>
           <ElAlert title="ZIP 是阅读资料，不能恢复数据库。升级或回退前，先停止所有使用数据库的服务，再完整备份 data 文件夹（含可能存在的 WAL / SHM）。" type="info" show-icon :closable="false"/>
         </div>
       </ElCollapseItem>
